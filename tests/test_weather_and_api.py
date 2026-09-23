@@ -81,7 +81,7 @@ def _valid_config() -> dict:
             "unit": "W",
             "semantics": "interval_average_power",
             "interval_minutes": 5,
-            "historical_statistic_id": "household_energy_total",
+            "historical_statistic_id": "sensor.house_power",
             "direct_whole_home_confirmed": True,
         },
         "battery": {
@@ -146,7 +146,14 @@ def test_llm_and_hacs_machine_tokens_are_distinct_and_config_is_atomic(tmp_path,
                 {"entity_id": "sensor.pv_array_one_power", "unit": "W"},
             ],
             "statistics": [
-                {"statistic_id": "household_energy_total", "unit": "kWh", "has_mean": False, "has_sum": True}
+                {
+                    "statistic_id": "sensor.house_power",
+                    "unit": "W",
+                    "has_mean": False,
+                    "has_sum": False,
+                    "mean_type": "power",
+                    "unit_class": "power",
+                }
             ],
             "statistics_error": None,
         }

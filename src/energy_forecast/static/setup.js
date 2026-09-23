@@ -66,6 +66,17 @@ function setEntityMeta(output, entityId) {
     : "Select a sensor";
 }
 
+function statisticAggregationLabel(statistic) {
+  const reported = [statistic.has_mean ? "mean" : "", statistic.has_sum ? "sum" : ""]
+    .filter(Boolean).join(", ");
+  if (reported) return reported;
+  const unit = String(statistic.unit || "").trim().toLowerCase();
+  const statisticType = String(statistic.mean_type || statistic.unit_class || "").toLowerCase();
+  if (statisticType === "power" || ["w", "kw"].includes(unit)) return "power mean (inferred from unit)";
+  if (statisticType === "energy" || ["wh", "kwh", "mwh"].includes(unit)) return "energy values (inferred from unit)";
+  return "aggregation not reported";
+}
+
 function updateHistoricalStatistic(statisticId) {
   const statistic = statisticById.get(statisticId);
   const meta = $("historical-statistic-meta");
@@ -75,8 +86,7 @@ function updateHistoricalStatistic(statisticId) {
     coverage.textContent = statisticsError || "Choose the Long Term Statistics ID for direct household use.";
     return;
   }
-  const aggregations = [statistic.has_mean ? "mean" : "", statistic.has_sum ? "sum" : ""]
-    .filter(Boolean).join(", ") || "no usable aggregate reported";
+  const aggregations = statisticAggregationLabel(statistic);
   meta.textContent = `${statistic.unit || "unit not reported"} · ${aggregations} · ${statistic.name || statistic.statistic_id}`;
   coverage.textContent = statistic.coverage
     ? `${statistic.statistic_id} · ${statistic.coverage.count} cached statistics records; calibration reports valid five-minute coverage.`
@@ -246,13 +256,13 @@ function loadEntities(payload) {
   statisticSelect.replaceChildren();
   makeOption(statisticSelect, "", "Choose a Long Term Statistics ID");
   for (const statistic of statistics) {
-    if (!statistic.has_mean && !statistic.has_sum) continue;
-    const aggregates = [statistic.has_mean ? "mean" : "", statistic.has_sum ? "sum" : ""]
-      .filter(Boolean).join(", ");
+    const unit = String(statistic.unit || "").trim().toLowerCase();
+    if (!["w", "kw", "wh", "kwh", "mwh"].includes(unit)) continue;
+    const aggregates = statisticAggregationLabel(statistic);
     makeOption(
       statisticSelect,
       statistic.statistic_id,
-      `${statistic.name || statistic.statistic_id} · ${statistic.unit || "unit not reported"} · ${aggregates} · ${statistic.statistic_id}`,
+      `${statistic.name || statistic.statistic_id} · ${statistic.unit} · ${aggregates} · ${statistic.statistic_id}`,
     );
   }
   statisticSelect.onchange = () => updateHistoricalStatistic(statisticSelect.value);

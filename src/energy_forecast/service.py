@@ -184,6 +184,8 @@ class ForecastService:
                     "source": item.get("source"),
                     "has_mean": bool(item.get("has_mean")),
                     "has_sum": bool(item.get("has_sum")),
+                    "mean_type": item.get("mean_type"),
+                    "unit_class": item.get("unit_class"),
                     "coverage": coverage,
                     "selected_for_household_load": bool(
                         self.config and statistic_id == self.config.consumption.historical_statistic_id
@@ -233,11 +235,9 @@ class ForecastService:
                 raise ServiceError(f"Home Assistant Long Term Statistics is unavailable; {load_statistic_id} is required")
             raise ServiceError(f"Home Assistant Long Term Statistics statistic_id {load_statistic_id} was not found")
         unit = canonical_unit(load_statistic.get("unit"))
-        if unit in {"w", "kw"} and load_statistic.get("has_mean"):
+        if unit in {"w", "kw", "wh", "kwh", "mwh"}:
             return
-        if unit in {"wh", "kwh", "mwh"} and load_statistic.get("has_sum"):
-            return
-        raise ServiceError(f"{load_statistic_id} must expose a power mean or energy sum in Long Term Statistics")
+        raise ServiceError(f"{load_statistic_id} must use a supported power or energy unit in Long Term Statistics")
 
     def setup_status(self) -> dict[str, Any]:
         connection = self.storage.get_ha_connection()
