@@ -163,11 +163,14 @@ class ForecastService:
                     "statistics_coverage": None,
                 }
             )
+        entity_by_id = {entity["entity_id"]: entity for entity in entities}
+
         statistics: list[dict[str, Any]] = []
         for item in statistic_ids:
             statistic_id = item.get("statistic_id")
             if not isinstance(statistic_id, str):
                 continue
+            statistic_entity = entity_by_id.get(statistic_id, {})
             coverage = None
             if configured_start and configured_end:
                 coverage = self.storage.history_coverage(statistic_id, configured_start, configured_end)
@@ -179,8 +182,8 @@ class ForecastService:
             statistics.append(
                 {
                     "statistic_id": statistic_id,
-                    "name": item.get("name") or statistic_id,
-                    "unit": item.get("unit_of_measurement"),
+                    "name": item.get("name") or statistic_entity.get("name") or statistic_id,
+                    "unit": item.get("unit_of_measurement") or item.get("unit") or statistic_entity.get("unit"),
                     "source": item.get("source"),
                     "has_mean": bool(item.get("has_mean")),
                     "has_sum": bool(item.get("has_sum")),

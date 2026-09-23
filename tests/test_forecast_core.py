@@ -231,6 +231,12 @@ def test_selected_long_term_statistic_is_the_historical_load_source() -> None:
 
     assert descriptors[statistic_id] == {"unit": "kWh", "semantics": "interval_energy"}
     assert config.consumption.entity_id != statistic_id
+    power_descriptors = HistoryImporter._statistic_descriptors(
+        config,
+        [{"statistic_id": statistic_id, "unit_of_measurement": None, "unit_class": "power"}],
+        "W",
+    )
+    assert power_descriptors[statistic_id] == {"unit": "W", "semantics": "interval_average_power"}
 
 
 def test_dst_calibration_bounds_preserve_repeated_local_hour() -> None:

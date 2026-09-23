@@ -68,6 +68,53 @@ async def test_bom_null_irradiance_falls_back_to_generic_open_meteo(tmp_path, mo
     assert calls == [BOM_MODEL, "auto"]
 
 
+@pytest.mark.asyncio
+async def test_unitless_statistic_uses_matching_entity_unit(tmp_path, monkeypatch) -> None:
+    from energy_forecast.service import ForecastService
+
+    service = ForecastService(Storage(tmp_path / "data"))
+    service.storage.save_ha_connection("http://ha.example:8123", "fixture-token", {})
+
+    class FakeHomeAssistantClient:
+        def __init__(self, base_url: str, access_token: str) -> None:
+            assert base_url == "http://ha.example:8123"
+
+        async def get_states(self) -> list[dict]:
+            return [{
+                "entity_id": "sensor.home_pv_2",
+                "state": "unavailable",
+                "attributes": {
+                    "friendly_name": "home_load",
+                    "unit_of_measurement": "W",
+                    "device_class": "power",
+                },
+            }]
+
+        async def list_statistic_ids(self) -> list[dict]:
+            return [{
+                "statistic_id": "sensor.home_pv_2",
+                "unit_of_measurement": None,
+                "unit": None,
+                "source": "recorder",
+                "has_mean": True,
+                "has_sum": False,
+                "mean_type": 1,
+                "unit_class": "power",
+            }]
+
+        async def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("energy_forecast.service.HomeAssistantClient", FakeHomeAssistantClient)
+    discovery = await service.entities()
+
+    statistic = discovery["statistics"][0]
+    assert statistic["statistic_id"] == "sensor.home_pv_2"
+    assert statistic["name"] == "home_load"
+    assert statistic["unit"] == "W"
+    assert discovery["entities"][0]["statistics_available"] is True
+
+
 def _valid_config() -> dict:
     return {
         "latitude": 51.5,

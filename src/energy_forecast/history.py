@@ -353,7 +353,23 @@ class HistoryImporter:
         except HomeAssistantError as exc:
             metadata = []
             warnings.append(f"Long-term statistics metadata unavailable: {exc}")
-        descriptors = self._statistic_descriptors(config, metadata)
+        load_statistic = next(
+            (item for item in metadata if item.get("statistic_id") == load_statistic_id),
+            None,
+        )
+        load_statistic_unit = (
+            load_statistic.get("unit_of_measurement") or load_statistic.get("unit")
+            if load_statistic
+            else None
+        )
+        if load_statistic and not load_statistic_unit:
+            try:
+                state = await self.client.get_state(load_statistic_id)
+            except HomeAssistantError as exc:
+                warnings.append(f"Could not read selected household-load unit: {exc}")
+            else:
+                load_statistic_unit = ((state or {}).get("attributes") or {}).get("unit_of_measurement")
+        descriptors = self._statistic_descriptors(config, metadata, load_statistic_unit)
         if load_statistic_id not in descriptors:
             warnings.append(f"Selected household-load statistic '{load_statistic_id}' is not available")
         statistic_rows = await self._fetch_statistics(descriptors, start, end, warnings)
@@ -381,7 +397,9 @@ class HistoryImporter:
 
     @staticmethod
     def _statistic_descriptors(
-        config: ForecastConfig, metadata: Sequence[dict[str, Any]]
+        config: ForecastConfig,
+        metadata: Sequence[dict[str, Any]],
+        load_statistic_unit: str | None = None,
     ) -> dict[str, dict[str, Any]]:
         metadata_by_id = {
             str(item.get("statistic_id")): item
@@ -405,10 +423,23 @@ class HistoryImporter:
         load_statistic_id = config.consumption.historical_statistic_id
         load_statistic = metadata_by_id.get(load_statistic_id)
         if load_statistic:
-            unit = str(load_statistic.get("unit_of_measurement") or "kWh")
-            normalized_unit = unit.strip().lower().replace(" ", "")
-            semantics = "interval_average_power" if normalized_unit in {"w", "kw"} else "interval_energy"
-            descriptors[load_statistic_id] = {"unit": unit, "semantics": semantics}
+            unit = (
+                load_statistic.get("unit_of_measurement")
+                or load_statistic.get("unit")
+                or load_statistic_unit
+                or (config.consumption.unit if load_statistic_id == config.consumption.entity_id else None)
+            )
+            if unit:
+                unit = str(unit)
+                normalized_unit = unit.strip().lower().replace(" ", "")
+                if normalized_unit in {"w", "kw"}:
+                    semantics = "interval_average_power"
+                elif normalized_unit in {"wh", "kwh", "mwh"}:
+                    semantics = "interval_energy"
+                else:
+                    semantics = None
+                if semantics:
+                    descriptors[load_statistic_id] = {"unit": unit, "semantics": semantics}
         return descriptors
 
     async def _fetch_statistics(
