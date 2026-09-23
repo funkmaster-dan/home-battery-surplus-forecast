@@ -163,6 +163,7 @@ function render(snapshot) {
   $("chart-range").textContent = intervals.length ? `${localTime(intervals[0].start, snapshot.site_timezone)} — ${localTime(intervals[intervals.length - 1].end, snapshot.site_timezone)}` : "No intervals";
   // Draw both interval-average power series against the same axis.
   drawPowerChart(intervals, snapshot.site_timezone);
+  drawWeatherChart(snapshot.weather_forecast_hourly || [], snapshot.site_timezone);
   drawChart($("battery-chart"), intervals.map((point) => ({ start: point.start, value: point.battery_energy_kwh })), "kWh", "#287a55", snapshot.site_timezone);
   showModelDetails(snapshot);
   showFreshness(snapshot);
@@ -225,6 +226,126 @@ function drawPowerChart(intervals, timezone) {
   }
 }
 
+
+function drawWeatherChart(weather, timezone) {
+  const canvas = $("weather-chart");
+  const legend = $("weather-legend");
+  const context = canvas.getContext("2d");
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const width = Math.max(320, rect.width);
+  const height = Number(canvas.getAttribute("height")) || 260;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  canvas.style.height = `${height}px`;
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  context.clearRect(0, 0, width, height);
+  legend.replaceChildren();
+
+  const orientations = [...new Set(weather.flatMap((hour) => Object.keys(hour.irradiance_wm2_by_orientation || {})))].sort();
+  const temperatureColor = "#3486a0";
+  const orientationColors = new Map(orientations.map((name, index) => [name, `hsl(${(38 + index * 67) % 360} 62% 46%)`]));
+  const addLegendItem = (label, color) => {
+    const item = document.createElement("span");
+    const swatch = document.createElement("i");
+    swatch.style.backgroundColor = color;
+    item.append(swatch, document.createTextNode(label));
+    legend.append(item);
+  };
+
+  const temperatures = weather
+    .map((hour) => ({ time: Date.parse(hour.end), value: hour.temperature_c }))
+    .filter((point) => Number.isFinite(point.time) && point.value !== null && Number.isFinite(Number(point.value)))
+    .map((point) => ({ ...point, value: Number(point.value) }));
+  const irradianceValues = orientations.flatMap((orientation) =>
+    weather.map((hour) => hour.irradiance_wm2_by_orientation?.[orientation])
+  ).filter((value) => value !== null && value !== undefined && Number.isFinite(Number(value))).map(Number);
+  if (temperatures.length) addLegendItem("Temperature (°C)", temperatureColor);
+  for (const orientation of orientations) {
+    const hasValues = weather.some((hour) => {
+      const value = hour.irradiance_wm2_by_orientation?.[orientation];
+      return value !== null && value !== undefined && Number.isFinite(Number(value));
+    });
+    if (hasValues) addLegendItem(`${orientation} irradiance`, orientationColors.get(orientation));
+  }
+
+  const timeValues = weather.flatMap((hour) => [Date.parse(hour.start), Date.parse(hour.end)]).filter(Number.isFinite);
+  if (!timeValues.length || (!temperatures.length && !irradianceValues.length)) {
+    context.fillStyle = "#73877d";
+    context.font = "13px DM Sans, sans-serif";
+    context.fillText("No hourly weather forecast is available", 58, 42);
+    return;
+  }
+
+  const minTime = Math.min(...timeValues);
+  const maxTime = Math.max(...timeValues);
+  const timeRange = Math.max(1, maxTime - minTime);
+  const rawTempMin = temperatures.length ? Math.min(...temperatures.map((point) => point.value)) : 0;
+  const rawTempMax = temperatures.length ? Math.max(...temperatures.map((point) => point.value)) : 1;
+  const tempPadding = Math.max(1, (rawTempMax - rawTempMin) * 0.08);
+  const tempMin = rawTempMin - tempPadding;
+  const tempMax = rawTempMax + tempPadding;
+  const irradianceMax = Math.max(1, ...irradianceValues) * 1.08;
+  const pad = { left: 66, right: 66, top: 16, bottom: 36 };
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
+  context.strokeStyle = "#e4ece7";
+  context.fillStyle = "#788980";
+  context.font = "10px DM Sans, sans-serif";
+  context.lineWidth = 1;
+  for (let tick = 0; tick <= 4; tick++) {
+    const ratio = tick / 4;
+    const y = pad.top + plotHeight * ratio;
+    context.beginPath();
+    context.moveTo(pad.left, y);
+    context.lineTo(width - pad.right, y);
+    context.stroke();
+    if (irradianceValues.length) {
+      context.textAlign = "right";
+      context.fillText(`${(irradianceMax * (1 - ratio)).toFixed(0)} W/m²`, pad.left - 8, y + 3);
+    }
+    if (temperatures.length) {
+      context.textAlign = "left";
+      context.fillText(`${(tempMax - (tempMax - tempMin) * ratio).toFixed(1)} °C`, width - pad.right + 8, y + 3);
+    }
+  }
+  const labelCount = Math.min(8, weather.length);
+  for (let tick = 0; tick < labelCount; tick++) {
+    const ratio = tick / Math.max(1, labelCount - 1);
+    const x = pad.left + plotWidth * ratio;
+    context.textAlign = tick === 0 ? "left" : tick === labelCount - 1 ? "right" : "center";
+    context.fillText(localTime(new Date(minTime + timeRange * ratio).toISOString(), timezone), x, height - 10);
+  }
+
+  const drawLine = (series, color, valueToY) => {
+    context.strokeStyle = color;
+    context.lineWidth = 2.2;
+    context.lineJoin = "round";
+    context.lineCap = "round";
+    context.beginPath();
+    let drawing = false;
+    for (const point of series) {
+      if (!Number.isFinite(point.time) || point.value === null || point.value === undefined || !Number.isFinite(Number(point.value))) {
+        drawing = false;
+        continue;
+      }
+      const x = pad.left + plotWidth * (point.time - minTime) / timeRange;
+      const y = valueToY(Number(point.value));
+      if (drawing) context.lineTo(x, y);
+      else { context.moveTo(x, y); drawing = true; }
+    }
+    context.stroke();
+  };
+  for (const orientation of orientations) {
+    const series = weather.map((hour) => {
+      const start = Date.parse(hour.start);
+      const end = Date.parse(hour.end);
+      return { time: (start + end) / 2, value: hour.irradiance_wm2_by_orientation?.[orientation] };
+    });
+    drawLine(series, orientationColors.get(orientation), (value) => pad.top + plotHeight * (1 - value / irradianceMax));
+  }
+  drawLine(temperatures, temperatureColor, (value) => pad.top + plotHeight * (1 - (value - tempMin) / (tempMax - tempMin)));
+}
 async function loadForecast() {
   try {
     const snapshot = await requestJSON("/ui/api/forecast");

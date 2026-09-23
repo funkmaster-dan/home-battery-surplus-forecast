@@ -580,6 +580,9 @@ class ForecastService:
             except WeatherUnavailable as exc:
                 weather_errors[f"{orientation[0]}:{orientation[1]}"] = str(exc)
         start = now
+        weather_forecast_hourly = _weather_forecast_hourly(
+            runtime_weather, start, start + timedelta(hours=config.horizon_hours)
+        )
         solar_by_array: dict[str, ForecastSeries | None] = {}
         array_energy: dict[str, float | None] = {}
         array_status: dict[str, Any] = {}
@@ -699,6 +702,7 @@ class ForecastService:
             "battery_minimum_at": _rfc3339(battery_result.battery_minimum_at) if battery_result and battery_result.battery_minimum_at else None,
             "non_free_grid_import_kwh": battery_result.non_free_grid_import_kwh if battery_result else None,
             "intervals_5m": intervals,
+            "weather_forecast_hourly": weather_forecast_hourly,
             "model_status": {
                 "solar_by_array": array_status,
                 "consumption": self.consumption.metrics if self.consumption else {"available": False},
@@ -723,6 +727,39 @@ class ForecastService:
         return snapshot
 
 
+
+def _weather_forecast_hourly(
+    runtime_weather: dict[tuple[float, float], WeatherSeries],
+    start: datetime,
+    end: datetime,
+) -> list[dict[str, Any]]:
+    hourly: dict[datetime, dict[str, Any]] = {}
+    for (tilt, azimuth), series in sorted(runtime_weather.items()):
+        orientation = f"{tilt:g}° tilt / {azimuth:g}° azimuth"
+        for point in series.points:
+            if point.start >= end or point.temperature_at <= start:
+                continue
+            item = hourly.get(point.start)
+            if item is None:
+                item = {
+                    "start": point.start,
+                    "end": point.temperature_at,
+                    "temperature_c": point.temperature_c,
+                    "irradiance_wm2_by_orientation": {},
+                }
+                hourly[point.start] = item
+            elif item["temperature_c"] is None and point.temperature_c is not None:
+                item["temperature_c"] = point.temperature_c
+            item["irradiance_wm2_by_orientation"][orientation] = point.irradiance_wm2
+    return [
+        {
+            "start": _rfc3339(item["start"]),
+            "end": _rfc3339(item["end"]),
+            "temperature_c": item["temperature_c"],
+            "irradiance_wm2_by_orientation": item["irradiance_wm2_by_orientation"],
+        }
+        for _, item in sorted(hourly.items())
+    ]
 def _current_array_samples(
     samples: list[dict[str, Any]], semantics: str, interval_minutes: int
 ) -> list[dict[str, Any]]:

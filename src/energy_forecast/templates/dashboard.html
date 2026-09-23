@@ -37,6 +37,13 @@
       <canvas id="power-chart" height="260" aria-label="Solar and home-load forecast in watts"></canvas>
       <div class="chart-axis-note">Interval-average power (W) · 5-minute steps</div>
     </section>
+
+    <section class="card chart-card">
+      <div class="card-heading"><div><div class="step-label">WEATHER FORECAST</div><h2>Temperature and solar irradiance</h2></div></div>
+      <div id="weather-legend" class="chart-legend weather-legend"></div>
+      <canvas id="weather-chart" height="260" aria-label="Hourly forecast temperature and tilted solar irradiance by orientation"></canvas>
+      <div class="chart-axis-note">Tilted irradiance (W/m², left axis) · Temperature (°C, right axis) · hourly values</div>
+    </section>
     <section class="card chart-card">
       <div class="card-heading"><div><div class="step-label">BATTERY BASELINE</div><h2>Stored energy trajectory</h2></div></div>
       <canvas id="battery-chart" height="220" aria-label="Projected stored battery energy in kilowatt-hours"></canvas>

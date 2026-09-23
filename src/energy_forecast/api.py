@@ -123,6 +123,7 @@ async def forecast(request: Request) -> JSONResponse:
     if snapshot is None:
         raise HTTPException(status_code=503, detail="No forecast has been computed")
     result = dict(snapshot)
+    result.pop("weather_forecast_hourly", None)
     try:
         from datetime import datetime, timezone
         valid_until = datetime.fromisoformat(str(result["valid_until"]).replace("Z", "+00:00"))
