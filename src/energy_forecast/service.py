@@ -33,7 +33,6 @@ from .weather import OpenMeteoWeather, WeatherSeries, WeatherUnavailable
 
 _LOGGER = logging.getLogger(__name__)
 REFRESH_SECONDS = 300
-HA_STATE_MAX_AGE = timedelta(minutes=15)
 WEATHER_MAX_AGE = timedelta(minutes=60)
 
 
@@ -552,7 +551,7 @@ class ForecastService:
             age = (now - timestamp).total_seconds() if timestamp else None
             state_ages[entity_id] = age / 60.0 if age is not None else None
             state_value = str(state.get("state", ""))
-            if age is None or age > HA_STATE_MAX_AGE.total_seconds() or state_value in {"unknown", "unavailable", "none", ""}:
+            if state_value in {"unknown", "unavailable", "none", ""}:
                 stale_entities.append(entity_id)
         runtime_weather: dict[tuple[float, float], WeatherSeries] = {}
         weather_errors: dict[str, str] = {}
