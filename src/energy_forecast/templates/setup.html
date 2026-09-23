@@ -40,6 +40,23 @@
       <p id="connection-message" class="form-message" role="status"></p>
     </section>
 
+
+    {% if edit_mode %}
+    <section class="card" id="hacs-token-card">
+      <div class="card-heading"><div><div class="step-label">HACS INTEGRATION</div><h2>Read-only forecast access</h2></div></div>
+      <p class="muted">Use the app URL in your browser address bar and this token when configuring the HACS integration. It is separate from your Home Assistant and LLM credentials.</p>
+      <label>HA integration token
+        <input id="hacs-integration-token" type="password" readonly autocomplete="off" spellcheck="false" placeholder="Reveal token to view">
+      </label>
+      <div class="token-actions">
+        <button id="reveal-hacs-token" class="button secondary" type="button">Reveal token</button>
+        <button id="copy-hacs-token" class="button secondary" type="button" disabled>Copy token</button>
+      </div>
+      <p id="hacs-token-message" class="form-message" role="status"></p>
+      <p class="help-text">This page has no login. Anyone who can reach it can reveal the token; keep the app on a trusted network.</p>
+    </section>
+    {% endif %}
+
     <form id="config-form" class="setup-sections" hidden>
       <section class="card">
         <div class="card-heading">

@@ -101,6 +101,7 @@ code { border-radius: 4px; padding: 1px 5px; background: #edf3ef; color: #164a36
 .form-message { min-height: 1.3em; margin: 10px 0 0; font-size: 13px; }
 .form-message.success { color: var(--green); }
 .form-message.error { color: var(--red); }
+.token-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
 .repeat-list { display: grid; gap: 12px; }
 .repeat-row { padding: 15px; border: 1px solid #e1ebe5; border-radius: 12px; background: #fbfdfb; }
 .repeat-row-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }

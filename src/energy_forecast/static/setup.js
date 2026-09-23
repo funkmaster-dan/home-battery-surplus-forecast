@@ -529,6 +529,48 @@ $("config-form").addEventListener("submit", async (event) => {
   }
 });
 
+
+const hacsTokenField = $("hacs-integration-token");
+if (hacsTokenField) {
+  const revealButton = $("reveal-hacs-token");
+  const copyButton = $("copy-hacs-token");
+  const message = $("hacs-token-message");
+  revealButton.addEventListener("click", async () => {
+    if (hacsTokenField.type === "text") {
+      hacsTokenField.value = "";
+      hacsTokenField.type = "password";
+      copyButton.disabled = true;
+      revealButton.textContent = "Reveal token";
+      setMessage(message, "");
+      return;
+    }
+    revealButton.disabled = true;
+    try {
+      const result = await requestJSON("/ui/api/hacs-token");
+      hacsTokenField.value = result.token;
+      hacsTokenField.type = "text";
+      copyButton.disabled = false;
+      revealButton.textContent = "Hide token";
+      setMessage(message, "Use this value in the HACS setup flow.", "success");
+    } catch (error) {
+      setMessage(message, error.message, "error");
+    } finally {
+      revealButton.disabled = false;
+    }
+  });
+  copyButton.addEventListener("click", async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable");
+      await navigator.clipboard.writeText(hacsTokenField.value);
+      setMessage(message, "Token copied to clipboard.", "success");
+    } catch {
+      hacsTokenField.focus();
+      hacsTokenField.select();
+      setMessage(message, "Token selected; copy it manually if clipboard access is unavailable.");
+    }
+  });
+}
+
 async function watchCalibration(runId) {
   const card = $("calibration-card");
   if (!card) return;

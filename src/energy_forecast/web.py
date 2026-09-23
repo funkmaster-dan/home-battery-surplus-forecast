@@ -154,6 +154,13 @@ def create_app(forecast_service: ForecastService | None = None) -> FastAPI:
         except ServiceError as exc:
             _service_exception(exc)
 
+
+    @app.get("/ui/api/hacs-token")
+    async def ui_hacs_token() -> JSONResponse:
+        token = os.environ.get("HA_INTEGRATION_TOKEN")
+        if not token:
+            raise HTTPException(status_code=503, detail="HA integration token is not configured")
+        return JSONResponse(content={"token": token}, headers={"Cache-Control": "no-store"})
     @app.post("/ui/api/calibration", status_code=status.HTTP_202_ACCEPTED)
     async def ui_start_calibration(request: Request) -> JSONResponse:
         try:
