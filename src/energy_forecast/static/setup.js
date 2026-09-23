@@ -20,6 +20,20 @@ function setMessage(element, text, kind = "") {
   element.className = `form-message ${kind}`;
 }
 
+function formatResponseError(detail, status) {
+  if (Array.isArray(detail)) {
+    return detail.map((issue) => {
+      const message = typeof issue === "string" ? issue : issue?.msg || issue?.message || JSON.stringify(issue);
+      const location = Array.isArray(issue?.loc)
+        ? issue.loc.filter((part) => part !== "body").join(".")
+        : "";
+      return location ? `${location}: ${message}` : message;
+    }).join("; ");
+  }
+  if (detail && typeof detail === "object") return detail.message || JSON.stringify(detail);
+  return detail ? String(detail) : `Request failed (${status})`;
+}
+
 async function requestJSON(path, options = {}) {
   const response = await fetch(path, {
     cache: "no-store",
@@ -27,7 +41,7 @@ async function requestJSON(path, options = {}) {
     ...options,
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || `Request failed (${response.status})`);
+  if (!response.ok) throw new Error(formatResponseError(payload.detail, response.status));
   return payload;
 }
 
