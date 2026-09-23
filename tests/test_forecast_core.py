@@ -14,6 +14,7 @@ from energy_forecast.history import (
     calibration_bounds,
     normalize_power_samples,
 )
+from energy_forecast.storage import Storage
 from energy_forecast.consumption import ConsumptionForecaster
 
 
@@ -237,6 +238,40 @@ def test_selected_long_term_statistic_is_the_historical_load_source() -> None:
         "W",
     )
     assert power_descriptors[statistic_id] == {"unit": "W", "semantics": "interval_average_power"}
+
+
+@pytest.mark.asyncio
+async def test_statistics_import_accepts_epoch_millisecond_timestamps(tmp_path) -> None:
+    class FakeClient:
+        async def statistics_many(self, requests: list[dict]) -> list[dict]:
+            return [
+                {"sensor.home_pv_2": [{"start": 1781308800000, "mean": 456.0}]}
+                if request["period"] == "hour"
+                else {}
+                for request in requests
+            ]
+
+    importer = HistoryImporter(FakeClient(), Storage(tmp_path / "data"))
+    rows = await importer._fetch_statistics(
+        {"sensor.home_pv_2": {"unit": "W", "semantics": "interval_average_power"}},
+        datetime(2026, 6, 13, tzinfo=UTC),
+        datetime(2026, 6, 14, tzinfo=UTC),
+        [],
+    )
+
+    assert rows == [
+        {
+            "entity_id": "sensor.home_pv_2",
+            "timestamp": "2026-06-13T00:00:00+00:00",
+            "value": 456.0,
+            "unit": "W",
+            "source": "statistics_hour",
+            "resolution_seconds": 3600,
+            "semantics": "interval_average_power",
+            "timestamp_is_end": False,
+            "estimated": True,
+        }
+    ]
 
 
 def test_dst_calibration_bounds_preserve_repeated_local_hour() -> None:

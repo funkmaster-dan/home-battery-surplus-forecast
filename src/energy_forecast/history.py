@@ -15,10 +15,18 @@ STEP = timedelta(minutes=5)
 RAW_CHUNK = timedelta(days=7)
 
 
-def parse_timestamp(value: str | datetime) -> datetime | None:
+def parse_timestamp(value: str | int | float | datetime) -> datetime | None:
     try:
-        result = value if isinstance(value, datetime) else datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
+        if isinstance(value, datetime):
+            result = value
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            # Recorder statistics return Unix timestamps in milliseconds.
+            result = datetime.fromtimestamp(value / 1000, timezone.utc)
+        elif isinstance(value, str):
+            result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        else:
+            return None
+    except (OverflowError, OSError, TypeError, ValueError):
         return None
     if result.tzinfo is None:
         return result.replace(tzinfo=timezone.utc)

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 import hashlib
 import json
 import math
 import os
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -84,21 +85,24 @@ class OpenMeteoWeather:
     ) -> WeatherSeries:
         if model not in {"era5", "ecmwf_ifs"}:
             raise ValueError("Historical model must be era5 or ecmwf_ifs")
+        zone = ZoneInfo(timezone_name)
+        utc_start = datetime.combine(start_date, time.min, zone).astimezone(timezone.utc)
+        utc_end = datetime.combine(end_date + timedelta(days=1), time.min, zone).astimezone(timezone.utc)
         params: dict[str, Any] = {
             "latitude": latitude,
             "longitude": longitude,
-            "start_date": start_date.isoformat(),
-            "end_date": end_date.isoformat(),
+            "start_date": utc_start.date().isoformat(),
+            "end_date": (utc_end - timedelta(microseconds=1)).date().isoformat(),
             "hourly": "global_tilted_irradiance,temperature_2m",
             "tilt": tilt_deg,
             "azimuth": azimuth_deg,
-            "timezone": timezone_name,
+            "timezone": "UTC",
             "timeformat": "unixtime",
             "models": model,
         }
         if elevation_m is not None:
             params["elevation"] = elevation_m
-        key_params = {"endpoint": "archive", **params}
+        key_params = {"endpoint": "archive", "site_timezone": timezone_name, **params}
         key = self._cache_key(key_params)
         cached = self.storage.get_weather_cache(key, max_age_seconds=10 * 365 * 24 * 3600)
         if cached:
@@ -154,15 +158,22 @@ class OpenMeteoWeather:
             "hourly": "global_tilted_irradiance,temperature_2m",
             "tilt": tilt_deg,
             "azimuth": azimuth_deg,
-            "timezone": timezone_name,
+            "timezone": "UTC",
             "timeformat": "unixtime",
             "forecast_hours": horizon_hours + 2,
-            "models": model,
         }
+        if model != "auto":
+            params["models"] = model
         if elevation_m is not None:
             params["elevation"] = elevation_m
         cache_slot = now.replace(minute=(now.minute // 30) * 30, second=0, microsecond=0)
-        key_params = {"endpoint": "forecast", "slot": cache_slot.strftime("%Y-%m-%dT%H:%M"), **params}
+        key_params = {
+            "endpoint": "forecast",
+            "slot": cache_slot.strftime("%Y-%m-%dT%H:%M"),
+            "site_timezone": timezone_name,
+            "model": model,
+            **params,
+        }
         key = self._cache_key(key_params)
         cached = self.storage.get_weather_cache(key, max_age_seconds=1800)
         if cached:
@@ -192,12 +203,13 @@ class OpenMeteoWeather:
                 )
                 return series
             except WeatherUnavailable:
-                fallback_params = {**params, "models": "auto"}
+                fallback_params = {key: value for key, value in params.items() if key != "models"}
                 try:
                     payload = await self._request(FORECAST_URL, fallback_params)
                 except WeatherUnavailable as exc:
                     raise WeatherUnavailable("BOM and generic Open-Meteo forecasts are unavailable") from exc
-                series = _parse_weather(payload, "auto", {"endpoint": "forecast", **fallback_params})
+                fallback_key_params = {"endpoint": "forecast", "site_timezone": timezone_name, "model": "auto", **fallback_params}
+                series = _parse_weather(payload, "auto", fallback_key_params)
                 series = WeatherSeries(
                     series.points,
                     "open-meteo:auto (BOM fallback)",
@@ -211,7 +223,7 @@ class OpenMeteoWeather:
                     {
                         "_open_meteo_body": payload,
                         "model": "auto",
-                        "parameters": {"endpoint": "forecast", **fallback_params},
+                        "parameters": fallback_key_params,
                         "source": "open-meteo:auto (BOM fallback)",
                     },
                 )

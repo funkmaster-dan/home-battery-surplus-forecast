@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 import os
 
@@ -34,10 +34,14 @@ async def test_bom_null_irradiance_falls_back_to_generic_open_meteo(tmp_path, mo
     hour = now.replace(minute=0, second=0, microsecond=0)
     times = [int((hour + timedelta(hours=index)).timestamp()) for index in range(30)]
     calls: list[str] = []
+    request_timezones: list[str] = []
+    requested_models: list[str | None] = []
 
     async def fixture_request(url: str, parameters: dict) -> dict:
-        model = parameters["models"]
+        model = parameters.get("models", "auto")
+        requested_models.append(parameters.get("models"))
         calls.append(model)
+        request_timezones.append(parameters["timezone"])
         if model == BOM_MODEL:
             return _hourly_payload(times, [None] * len(times), [None] * len(times))
         return _hourly_payload(times, [150.0] * len(times), [23.0] * len(times), elevation=42)
@@ -47,7 +51,7 @@ async def test_bom_null_irradiance_falls_back_to_generic_open_meteo(tmp_path, mo
     result = await weather.runtime(
         latitude=51.5,
         longitude=-0.12,
-        timezone_name="UTC",
+        timezone_name="Australia/Adelaide",
         tilt_deg=25,
         azimuth_deg=0,
         horizon_hours=24,
@@ -56,16 +60,47 @@ async def test_bom_null_irradiance_falls_back_to_generic_open_meteo(tmp_path, mo
     )
 
     assert calls == [BOM_MODEL, "auto"]
+    assert request_timezones == ["UTC", "UTC"]
+    assert requested_models == [BOM_MODEL, None]
     assert result.source == "open-meteo:auto (BOM fallback)"
     assert result.elevation_m == 42
     assert result.elevation_source == "open-meteo-grid-elevation"
     assert any(point.irradiance_wm2 == 150 for point in result.points)
     cached = await weather.runtime(
-        51.5, -0.12, "UTC", 25, 0, 24, now=now + timedelta(minutes=5),
+        51.5, -0.12, "Australia/Adelaide", 25, 0, 24, now=now + timedelta(minutes=5),
         runtime_model=BOM_MODEL,
     )
     assert cached.source == "open-meteo:auto (BOM fallback)"
     assert calls == [BOM_MODEL, "auto"]
+
+
+@pytest.mark.asyncio
+async def test_historical_weather_uses_utc_hour_bins_for_adelaide(tmp_path, monkeypatch) -> None:
+    weather = OpenMeteoWeather(Storage(tmp_path / "data"))
+    start_hour = datetime(2024, 1, 1, tzinfo=UTC)
+    times = [int((start_hour + timedelta(hours=index + 1)).timestamp()) for index in range(3)]
+    requests: list[dict] = []
+
+    async def fixture_request(url: str, parameters: dict) -> dict:
+        requests.append(dict(parameters))
+        return _hourly_payload(times, [100.0] * len(times), [21.0] * len(times))
+
+    monkeypatch.setattr(weather, "_request", fixture_request)
+    series = await weather.historical(
+        latitude=-34.85,
+        longitude=138.52,
+        timezone_name="Australia/Adelaide",
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 1, 2),
+        tilt_deg=25,
+        azimuth_deg=0,
+        model="era5",
+    )
+
+    assert requests[0]["timezone"] == "UTC"
+    assert requests[0]["start_date"] == "2023-12-31"
+    assert requests[0]["end_date"] == "2024-01-02"
+    assert list(series.irradiance) == [start_hour + timedelta(hours=index) for index in range(3)]
 
 
 @pytest.mark.asyncio
