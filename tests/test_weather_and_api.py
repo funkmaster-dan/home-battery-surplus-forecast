@@ -313,6 +313,15 @@ def test_llm_and_hacs_machine_tokens_are_distinct_and_config_is_atomic(tmp_path,
     updated = _valid_config()
     updated["battery"]["capacity_kwh"] = 12
     updated["open_meteo_refresh_minutes"] = 120
+    updated["grid_import_windows"] = [
+        {
+            "weekdays": [0, 1, 2, 3, 4, 5, 6],
+            "start": "23:00",
+            "end": "05:00",
+            "target_soc_pct": 80,
+            "grid_charge_kw": 2,
+        }
+    ]
     rejected = client.put(
         "/api/v1/config",
         headers={"Authorization": f"Bearer {hacs_token}"},
@@ -342,6 +351,7 @@ def test_llm_and_hacs_machine_tokens_are_distinct_and_config_is_atomic(tmp_path,
     assert accepted.status_code == 200
     assert accepted.json()["saved"] is True
     assert service.storage.get_config()["battery"]["capacity_kwh"] == 12
+    assert service.storage.get_config()["grid_import_windows"][0]["weekdays"] == [0, 1, 2, 3, 4, 5, 6]
 
     invalid = {**updated, "latitude": 91}
     response = client.put(
@@ -356,6 +366,7 @@ def test_llm_and_hacs_machine_tokens_are_distinct_and_config_is_atomic(tmp_path,
     assert config_response.status_code == 200
     assert ha_token not in json.dumps(config_response.json())
     assert config_response.json()["config"]["open_meteo_refresh_minutes"] == 120
+    assert config_response.json()["config"]["grid_import_windows"][0]["weekdays"] == [0, 1, 2, 3, 4, 5, 6]
 
 
 def test_hacs_read_token_cannot_access_llm_configuration(tmp_path, monkeypatch) -> None:

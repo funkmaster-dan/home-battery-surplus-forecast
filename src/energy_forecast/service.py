@@ -45,7 +45,19 @@ class ForecastService:
         self.storage = storage or Storage()
         self.weather = OpenMeteoWeather(self.storage)
         saved = self.storage.get_config()
-        self.config = ForecastConfig.model_validate(saved) if saved else None
+        if saved is None:
+            self.config = None
+        else:
+            windows = saved.get("grid_import_windows")
+            migrated_windows = False
+            if isinstance(windows, list):
+                for window in windows:
+                    if isinstance(window, dict) and "weekday" in window and "weekdays" not in window:
+                        window["weekdays"] = [window.pop("weekday")]
+                        migrated_windows = True
+            self.config = ForecastConfig.model_validate(saved)
+            if migrated_windows:
+                self.storage.save_config(self.config.model_dump(mode="json"))
         self.solar: SolarForecaster | None = None
         self.consumption: ConsumptionForecaster | None = None
         self.snapshot: dict[str, Any] | None = None

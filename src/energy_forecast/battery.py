@@ -78,7 +78,13 @@ def _calculate(
             return _unavailable("Battery forecast contains invalid or negative power")
     normalized_windows = [_window_dict(window) for window in windows]
     for window in normalized_windows:
-        if not 0 <= window["weekday"] <= 6 or window["start"] == window["end"]:
+        weekdays = window["weekdays"]
+        if (
+            not weekdays
+            or len(weekdays) != len(set(weekdays))
+            or any(not 0 <= weekday <= 6 for weekday in weekdays)
+            or window["start"] == window["end"]
+        ):
             return _unavailable("Grid-import window is invalid")
         if not 0 < window["target_soc_pct"] <= 100 or window["grid_charge_kw"] <= 0:
             return _unavailable("Grid-import windows require a target SOC and positive charge limit")
@@ -165,19 +171,24 @@ def _finite(value: Any) -> float | None:
 
 def _window_dict(window: GridImportWindow | dict[str, Any]) -> dict[str, Any]:
     if isinstance(window, dict):
-        weekday = int(window["weekday"])
+        weekdays = [int(day) for day in window["weekdays"]]
         start = _as_time(window["start"])
         end = _as_time(window["end"])
         target_soc = float(window["target_soc_pct"])
         grid_charge_kw = float(window["grid_charge_kw"])
     else:
-        weekday = window.weekday
+        weekdays = list(window.weekdays)
         start = window.start
         end = window.end
         target_soc = window.target_soc_pct
         grid_charge_kw = window.grid_charge_kw
-    return {"weekday": weekday, "start": start, "end": end,
-            "target_soc_pct": target_soc, "grid_charge_kw": grid_charge_kw}
+    return {
+        "weekdays": weekdays,
+        "start": start,
+        "end": end,
+        "target_soc_pct": target_soc,
+        "grid_charge_kw": grid_charge_kw,
+    }
 
 
 def _as_time(value: Any) -> time:
@@ -191,14 +202,15 @@ def _as_time(value: Any) -> time:
 def _window_active(local: datetime, window: dict[str, Any]) -> bool:
     current_time = local.timetz().replace(tzinfo=None)
     weekday = local.weekday()
+    weekdays = window["weekdays"]
     start: time = window["start"]
     end: time = window["end"]
     if start < end:
-        return weekday == window["weekday"] and start <= current_time < end
-    if weekday == window["weekday"] and current_time >= start:
+        return weekday in weekdays and start <= current_time < end
+    if weekday in weekdays and current_time >= start:
         return True
-    previous_weekday = (window["weekday"] + 1) % 7
-    return weekday == previous_weekday and current_time < end
+    previous_weekday = (weekday - 1) % 7
+    return previous_weekday in weekdays and current_time < end
 
 
 def _unavailable(error: str) -> BatteryForecast:

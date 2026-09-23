@@ -78,14 +78,20 @@ class BatteryConfig(BaseModel):
 class GridImportWindow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    weekday: int = Field(ge=0, le=6, description="Monday is 0; Sunday is 6")
+    weekdays: list[Annotated[int, Field(ge=0, le=6)]] = Field(
+        min_length=1,
+        max_length=7,
+        description="Monday is 0; Sunday is 6",
+    )
     start: time
     end: time
     target_soc_pct: float = Field(gt=0, le=100)
     grid_charge_kw: float = Field(gt=0, le=100_000)
 
     @model_validator(mode="after")
-    def require_nonempty_window(self) -> GridImportWindow:
+    def validate_window(self) -> GridImportWindow:
+        if len(set(self.weekdays)) != len(self.weekdays):
+            raise ValueError("Grid-import window weekdays must be unique")
         if self.start == self.end:
             raise ValueError("Grid-import window start and end must differ")
         return self

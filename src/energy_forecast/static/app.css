@@ -104,6 +104,14 @@ code { border-radius: 4px; padding: 1px 5px; background: #edf3ef; color: #164a36
 .repeat-row { padding: 15px; border: 1px solid #e1ebe5; border-radius: 12px; background: #fbfdfb; }
 .repeat-row-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .repeat-row .field-grid { margin: 10px 0 0; }
+.weekday-field { min-width: 0; margin: 10px 0 0; padding: 0; border: 0; }
+.weekday-field legend { margin-bottom: 8px; color: #3d554b; font-size: 12px; font-weight: 700; }
+.weekday-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.weekday-option {
+  display: inline-flex; flex: 0 0 auto; flex-direction: row; align-items: center; gap: 7px;
+  padding: 7px 9px; border: 1px solid #cadbd1; border-radius: 8px; background: #fff; cursor: pointer;
+}
+.weekday-option input { flex: 0 0 18px; width: 18px; min-height: 0; height: 18px; margin: 0; padding: 0; }
 .submit-row { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin: 20px 0 0; }
 .submit-row p { max-width: 530px; margin: 0; font-size: 12px; }
 .status-pill { display: inline-flex; align-items: center; padding: 5px 10px; border: 1px solid #dce6e0; border-radius: 999px; color: #53655e; background: #f5f8f6; font-size: 11px; font-weight: 700; text-transform: capitalize; }

@@ -14,8 +14,9 @@ from energy_forecast.history import (
     calibration_bounds,
     normalize_power_samples,
 )
-from energy_forecast.storage import Storage
 from energy_forecast.consumption import ConsumptionForecaster
+from energy_forecast.service import ForecastService
+from energy_forecast.storage import Storage
 
 
 UTC = timezone.utc
@@ -97,7 +98,7 @@ def test_free_import_window_recharges_before_later_nonfree_period() -> None:
     solar = power_series(start, 3, 0, "solar_power")
     load = power_series(start, 3, 1000, "home_load_power")
     window = GridImportWindow(
-        weekday=0,
+        weekdays=[0],
         start=time(1, 0),
         end=time(2, 0),
         target_soc_pct=80,
@@ -111,6 +112,55 @@ def test_free_import_window_recharges_before_later_nonfree_period() -> None:
     assert result.battery_minimum_soc_pct == pytest.approx(50.0)
     assert result.non_free_grid_import_kwh == pytest.approx(0.0)
     assert result.battery_minimum_at == start + timedelta(hours=1)
+
+def test_multi_day_import_window_applies_on_each_selected_weekday() -> None:
+    start = datetime(2024, 1, 1, tzinfo=UTC)  # Monday
+    config = BatteryConfig(
+        entity_id="sensor.battery_soc", unit="%", state_type="soc_percent", capacity_kwh=10,
+        max_charge_kw=1, max_discharge_kw=0.1, charge_efficiency=1, discharge_efficiency=1,
+    )
+    window = GridImportWindow(
+        weekdays=[0, 1], start=time(0, 0), end=time(0, 30), target_soc_pct=1, grid_charge_kw=0.001
+    )
+
+    result = BatterySurplusCalculator.calculate(
+        power_series(start, 48, 0, "solar_power"),
+        power_series(start, 48, 1000, "home_load_power"),
+        10.0,
+        config,
+        [window],
+        48,
+    )
+
+    assert result.status == "ready"
+    assert result.non_free_grid_import_kwh == pytest.approx(42.3)
+
+
+def test_grid_import_days_must_be_nonempty_unique_and_valid() -> None:
+    values = {"start": time(0, 0), "end": time(1, 0), "target_soc_pct": 80, "grid_charge_kw": 2}
+
+    with pytest.raises(ValidationError):
+        GridImportWindow(weekdays=[], **values)
+    with pytest.raises(ValidationError, match="weekdays must be unique"):
+        GridImportWindow(weekdays=[1, 1], **values)
+    with pytest.raises(ValidationError):
+        GridImportWindow(weekdays=[7], **values)
+
+
+def test_legacy_saved_weekday_migrates_to_weekdays(tmp_path) -> None:
+    storage = Storage(tmp_path / "service-data")
+    saved = valid_config().model_dump(mode="json")
+    saved["grid_import_windows"] = [
+        {"weekday": 2, "start": "23:00", "end": "00:30", "target_soc_pct": 80, "grid_charge_kw": 2}
+    ]
+    storage.save_config(saved)
+
+    service = ForecastService(storage)
+
+    migrated = storage.get_config()["grid_import_windows"][0]
+    assert service.config.grid_import_windows[0].weekdays == [2]
+    assert migrated["weekdays"] == [2]
+    assert "weekday" not in migrated
 
 
 def test_battery_without_import_window_reaches_three_kwh_minimum() -> None:
@@ -150,7 +200,9 @@ def test_overnight_import_window_applies_after_midnight() -> None:
         entity_id="sensor.battery_soc", unit="%", state_type="soc_percent", capacity_kwh=10,
         max_charge_kw=1, max_discharge_kw=0.5, charge_efficiency=1, discharge_efficiency=1,
     )
-    window = GridImportWindow(weekday=6, start=time(23, 30), end=time(0, 30), target_soc_pct=1, grid_charge_kw=0.001)
+    window = GridImportWindow(
+        weekdays=[6], start=time(23, 30), end=time(0, 30), target_soc_pct=1, grid_charge_kw=0.001
+    )
     result = BatterySurplusCalculator.calculate(
         power_series(start, 2, 0, "solar_power"), power_series(start, 2, 1000, "home_load_power"),
         10.0, config, [window], 2,
@@ -165,7 +217,9 @@ def test_both_repeated_dst_wall_clock_windows_are_included() -> None:
         entity_id="sensor.battery_soc", unit="%", state_type="soc_percent", capacity_kwh=10,
         max_charge_kw=1, max_discharge_kw=0.5, charge_efficiency=1, discharge_efficiency=1,
     )
-    window = GridImportWindow(weekday=6, start=time(1, 0), end=time(1, 30), target_soc_pct=1, grid_charge_kw=0.001)
+    window = GridImportWindow(
+        weekdays=[6], start=time(1, 0), end=time(1, 30), target_soc_pct=1, grid_charge_kw=0.001
+    )
     solar = ForecastSeries("solar_power", "W", power_series(start, 4, 0, "solar_power").points, start,
                            "America/New_York", "fixture", 1.0)
     load = ForecastSeries("home_load_power", "W", power_series(start, 4, 1000, "home_load_power").points, start,

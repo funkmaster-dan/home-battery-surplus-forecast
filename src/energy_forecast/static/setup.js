@@ -198,17 +198,41 @@ function addGridWindow(saved = null) {
   remove.addEventListener("click", () => row.remove());
   head.append(title, remove);
   row.append(head);
+
+  const selectedWeekdays = new Set((saved?.weekdays ?? [0, 1, 2, 3, 4, 5, 6]).map(Number));
+  const weekdayField = document.createElement("fieldset");
+  weekdayField.className = "weekday-field";
+  const legend = document.createElement("legend");
+  legend.textContent = "Days";
+  const picker = document.createElement("div");
+  picker.className = "weekday-picker";
+  const weekdayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  weekdayNames.forEach((name, weekday) => {
+    const option = document.createElement("label");
+    option.className = "weekday-option";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = String(weekday);
+    checkbox.dataset.role = "weekday";
+    checkbox.checked = selectedWeekdays.has(weekday);
+    const text = document.createElement("span");
+    text.textContent = name;
+    option.append(checkbox, text);
+    picker.append(option);
+  });
+  weekdayField.append(legend, picker);
+  row.append(weekdayField);
+
   const grid = document.createElement("div");
-  grid.className = "field-grid five window-grid";
-  const weekday = selectControl([
-    ["0", "Monday"], ["1", "Tuesday"], ["2", "Wednesday"], ["3", "Thursday"],
-    ["4", "Friday"], ["5", "Saturday"], ["6", "Sunday"],
-  ], String(saved?.weekday ?? 0));
+  grid.className = "field-grid two window-grid";
   const start = input("time", saved?.start || "00:00", { required: true });
+  start.dataset.role = "start";
   const end = input("time", saved?.end || "06:00", { required: true });
+  end.dataset.role = "end";
   const target = input("number", saved?.target_soc_pct ?? 80, { min: 1, max: 100, step: "any", required: true });
+  target.dataset.role = "target";
   const charge = input("number", saved?.grid_charge_kw ?? 2, { min: 0.01, step: "any", required: true });
-  addLabeledControl(grid, "Starts on", weekday);
+  charge.dataset.role = "charge";
   addLabeledControl(grid, "Start time", start);
   addLabeledControl(grid, "End time", end);
   addLabeledControl(grid, "Target SOC (%)", target);
@@ -448,13 +472,14 @@ $("config-form").addEventListener("submit", async (event) => {
       };
     });
     const windows = [...document.querySelectorAll(".window-row")].map((row) => {
-      const fields = row.querySelectorAll("select, input");
+      const weekdays = [...row.querySelectorAll('[data-role="weekday"]:checked')].map((input) => Number(input.value));
+      if (weekdays.length === 0) throw new Error("Choose one or more days for each grid-import window.");
       return {
-        weekday: Number(fields[0].value),
-        start: fields[1].value,
-        end: fields[2].value,
-        target_soc_pct: Number(fields[3].value),
-        grid_charge_kw: Number(fields[4].value),
+        weekdays,
+        start: row.querySelector('[data-role="start"]').value,
+        end: row.querySelector('[data-role="end"]').value,
+        target_soc_pct: Number(row.querySelector('[data-role="target"]').value),
+        grid_charge_kw: Number(row.querySelector('[data-role="charge"]').value),
       };
     });
     const temperatureEntity = $("temperature-entity").value || null;
