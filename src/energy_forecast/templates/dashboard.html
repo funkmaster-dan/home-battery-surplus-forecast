@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Forecast · Home Battery Surplus Forecast</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Home Battery Surplus Forecast">
+      <span class="brand-mark">⌁</span>
+      <span><strong>Home Battery</strong><small>Surplus Forecast</small></span>
+    </a>
+    <div class="topbar-actions"><span id="forecast-status" class="status-pill">Loading</span><a class="text-link" href="/setup">Configuration</a></div>
+  </header>
+  <main class="page-shell dashboard-shell">
+    <section class="page-heading dashboard-heading">
+      <div><div class="eyebrow">Read-only planning signal</div><h1>Energy forecast</h1><p id="forecast-subtitle">Solar production, home load, and conservative battery trajectory.</p></div>
+      <button id="recalibrate" class="button secondary" type="button">Recalibrate models</button>
+    </section>
+    <div id="freshness-warning" class="warning-banner" hidden></div>
+    <section class="metric-grid" aria-label="Forecast totals">
+      <article class="metric-card"><span>Solar generation</span><strong id="metric-solar">—</strong><small>next configured horizon</small></article>
+      <article class="metric-card"><span>Home consumption</span><strong id="metric-load">—</strong><small>trained from selected statistics</small></article>
+      <article class="metric-card highlight"><span>Minimum battery surplus</span><strong id="metric-surplus">—</strong><small>before any extra export</small></article>
+      <article class="metric-card"><span>Minimum battery SOC</span><strong id="metric-soc">—</strong><small id="metric-minimum-at">projected minimum</small></article>
+      <article class="metric-card"><span>Non-free grid import</span><strong id="metric-grid">—</strong><small>baseline simulation</small></article>
+    </section>
+
+    <section class="card chart-card">
+      <div class="card-heading"><div><div class="step-label">FIVE-MINUTE PROFILE</div><h2>Solar and household load</h2></div><span id="chart-range" class="muted"></span></div>
+      <div class="chart-legend"><span><i class="legend-solar"></i>Solar</span><span><i class="legend-load"></i>Home load</span></div>
+      <canvas id="power-chart" height="260" aria-label="Solar and home-load forecast in watts"></canvas>
+      <div class="chart-axis-note">Interval-average power (W) · 5-minute steps</div>
+    </section>
+    <section class="card chart-card">
+      <div class="card-heading"><div><div class="step-label">BATTERY BASELINE</div><h2>Stored energy trajectory</h2></div></div>
+      <canvas id="battery-chart" height="220" aria-label="Projected stored battery energy in kilowatt-hours"></canvas>
+      <div class="chart-axis-note">Stored energy (kWh) · PV serves home load first · no discretionary export</div>
+    </section>
+
+    <div class="dashboard-columns">
+      <section class="card"><div class="card-heading"><div><div class="step-label">MODEL QUALITY</div><h2>Calibration and coverage</h2></div></div><div id="model-status" class="detail-list">Waiting for forecast metadata…</div></section>
+      <section class="card"><div class="card-heading"><div><div class="step-label">FRESHNESS</div><h2>Data sources</h2></div></div><div id="freshness-details" class="detail-list">Waiting for source metadata…</div></section>
+    </div>
+    <section class="card calibration-card" id="calibration-card" hidden>
+      <div class="card-heading"><div><div class="step-label">CALIBRATION</div><h2>Refitting forecast models</h2></div><span id="calibration-pill" class="status-pill">Queued</span></div>
+      <div class="progress-track"><div id="calibration-progress" class="progress-fill"></div></div>
+      <pre id="calibration-details" class="status-output"></pre>
+    </section>
+  </main>
+  <footer class="page-footer">Forecasts do not schedule discharge or control Home Assistant. Automations define their own thresholds.</footer>
+  <script src="/static/dashboard.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Set up · Home Battery Surplus Forecast</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Home Battery Surplus Forecast">
+      <span class="brand-mark">⌁</span>
+      <span><strong>Home Battery</strong><small>Surplus Forecast</small></span>
+    </a>
+    <span class="topbar-note">Read-only forecasts · No battery control</span>
+  </header>
+  <main class="page-shell">
+    <section class="page-heading">
+      <div class="eyebrow">First-run setup</div>
+      <h1>Connect your energy data</h1>
+      <p>Connect Home Assistant, confirm sensor units, and train on the history Recorder actually retains.</p>
+    </section>
+
+    <section class="card" id="connection-card">
+      <div class="card-heading">
+        <div><div class="step-label">STEP 1</div><h2>Home Assistant connection</h2></div>
+        <span id="connection-status" class="status-pill">Not connected</span>
+      </div>
+      <p class="muted">The Long-Lived Access Token is sent only to this app's backend and is never returned to the browser.</p>
+      <div class="field-grid two">
+        <label>Home Assistant URL
+          <input id="ha-url" type="url" placeholder="http://home-assistant-host:8123" autocomplete="url" required>
+        </label>
+        <label>Long-Lived Access Token
+          <input id="ha-token" type="password" autocomplete="new-password" spellcheck="false" required>
+        </label>
+      </div>
+      <button id="connect-button" class="button primary" type="button">Connect and inspect sensors</button>
+      <p id="connection-message" class="form-message" role="status"></p>
+    </section>
+
+    <form id="config-form" class="setup-sections" hidden>
+      <section class="card">
+        <div class="card-heading">
+          <div><div class="step-label">STEP 2</div><h2>Home and calibration range</h2></div>
+        </div>
+        <div class="field-grid three">
+          <label>Latitude
+            <input id="latitude" type="number" min="-90" max="90" step="any" required>
+          </label>
+          <label>Longitude
+            <input id="longitude" type="number" min="-180" max="180" step="any" required>
+          </label>
+          <label>Home Assistant IANA time zone
+            <input id="timezone" type="text" placeholder="UTC or the time zone reported by Home Assistant" required>
+          </label>
+        </div>
+        <div class="map-label-row"><strong>Home location</strong><span>Click the map to move the marker.</span></div>
+        <div id="setup-map" aria-label="Select the home location on the map"></div>
+        <div class="field-grid three range-grid">
+          <label>Calibration starts
+            <input id="calibration-start" type="date" required>
+          </label>
+          <label>Calibration ends (exclusive)
+            <input id="calibration-end" type="date" required>
+          </label>
+          <label>Forecast horizon
+            <select id="horizon-hours"><option value="24">24 hours</option><option value="36">36 hours</option><option value="48" selected>48 hours</option></select>
+          </label>
+        </div>
+        <p class="help-text">The selected dates control historical training only. The live battery forecast starts from the current battery state and runs forward independently.</p>
+      </section>
+
+      <section class="card">
+        <div class="card-heading">
+          <div><div class="step-label">STEP 3</div><h2>Home consumption</h2></div>
+        </div>
+        <div class="source-callout">
+          <strong>Historical training source: selected Home Assistant Long Term Statistics ID.</strong>
+          Choose the statistic that represents direct household energy use. The app imports only the ID you select and never substitutes grid import/export.
+        </div>
+        <div class="field-grid two">
+          <label>Current whole-home load sensor
+            <select id="consumption-entity" required><option value="">Choose a direct whole-home sensor</option></select>
+          </label>
+          <label>Value semantics — confirm from the sensor
+            <select id="consumption-semantics" required>
+              <option value="">Confirm sensor semantics</option>
+              <option value="instantaneous_power">Instantaneous power</option>
+              <option value="interval_average_power">Interval-average power</option>
+              <option value="interval_energy">Energy per interval</option>
+              <option value="cumulative_energy">Cumulative energy counter</option>
+            </select>
+          </label>
+        </div>
+        <label class="check-row"><input id="direct-whole-home-confirmed" type="checkbox" required> I confirm this live sensor reports direct whole-home consumption, not grid import or export.</label>
+        <div class="field-grid two">
+          <label>Sensor unit and device class
+            <output id="consumption-meta" class="entity-meta">Select a sensor</output>
+          </label>
+          <label>Sensor interval (minutes)
+            <input id="consumption-interval" type="number" min="1" max="1440" value="5" required>
+          </label>
+        </div>
+        <div class="field-grid two">
+          <label>Historical household-use statistic
+            <select id="historical-statistic" required><option value="">Choose a Long Term Statistics ID</option></select>
+          </label>
+          <label>Statistic unit and aggregation
+            <output id="historical-statistic-meta" class="entity-meta">Select a statistic</output>
+          </label>
+        </div>
+        <div class="coverage-note" id="historical-statistic-coverage">Select the Long Term Statistics item representing whole-house energy use.</div>
+      </section>
+
+      <section class="card">
+        <div class="card-heading">
+          <div><div class="step-label">STEP 4</div><h2>Solar arrays</h2></div>
+          <button id="add-array" class="button secondary small" type="button">＋ Add array</button>
+        </div>
+        <p class="muted">Add one row per PV grouping. Azimuth follows Open-Meteo: 0° south, −90° east, +90° west, ±180° north.</p>
+        <div id="solar-arrays" class="repeat-list"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-heading">
+          <div><div class="step-label">STEP 5</div><h2>Battery and optional temperature</h2></div>
+        </div>
+        <div class="field-grid two">
+          <label>Battery SOC or energy sensor
+            <select id="battery-entity" required><option value="">Choose current battery state</option></select>
+          </label>
+          <label>Battery state representation
+            <select id="battery-state-type" required>
+              <option value="soc_percent">State of charge (%)</option>
+              <option value="energy_kwh">Stored energy (kWh, Wh or MWh)</option>
+            </select>
+          </label>
+        </div>
+        <div class="field-grid three">
+          <label>Battery capacity (kWh)<input id="capacity-kwh" type="number" min="0.01" step="any" required></label>
+          <label>Maximum charge (kW)<input id="max-charge-kw" type="number" min="0.01" step="any" required></label>
+          <label>Maximum discharge (kW)<input id="max-discharge-kw" type="number" min="0.01" step="any" required></label>
+          <label>Charge efficiency (0–1)<input id="charge-efficiency" type="number" min="0.01" max="1" step="any" value="0.95" required></label>
+          <label>Discharge efficiency (0–1)<input id="discharge-efficiency" type="number" min="0.01" max="1" step="any" value="0.95" required></label>
+          <label>Battery sensor unit and class<output id="battery-meta" class="entity-meta">Select a sensor</output></label>
+        </div>
+        <div class="field-grid two optional-temp">
+          <label>Historical outdoor-temperature sensor (optional)
+            <select id="temperature-entity"><option value="">Use Open-Meteo archive temperature</option></select>
+          </label>
+          <label>Temperature unit
+            <select id="temperature-unit"><option value="°C">°C</option><option value="°F">°F</option></select>
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-heading">
+          <div><div class="step-label">STEP 6</div><h2>Recurring grid-import windows</h2></div>
+          <button id="add-window" class="button secondary small" type="button">＋ Add window</button>
+        </div>
+        <p class="muted">Optional. Each enabled window is treated as a free-import interval in the baseline simulation; no charging or discharge command is sent to Home Assistant.</p>
+        <div id="grid-windows" class="repeat-list"></div>
+      </section>
+
+      <div class="submit-row">
+        <p class="muted">This app exposes forecasts only. Your Home Assistant automations retain all control and export decisions.</p>
+        <button class="button primary" type="submit">Save configuration and start calibration</button>
+      </div>
+      <p id="config-message" class="form-message" role="status"></p>
+    </form>
+
+    <section class="card calibration-card" id="calibration-card" hidden>
+      <div class="card-heading"><div><div class="step-label">CALIBRATION</div><h2>Importing history and fitting models</h2></div><span id="calibration-pill" class="status-pill">Queued</span></div>
+      <div class="progress-track"><div id="calibration-progress" class="progress-fill"></div></div>
+      <pre id="calibration-details" class="status-output">Waiting for the calibration worker…</pre>
+      <a id="dashboard-link" class="button primary" href="/" hidden>Open forecast dashboard</a>
+    </section>
+  </main>
+  <footer class="page-footer">Keep this app on a trusted private network. Browser setup has no login by design.</footer>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="/static/setup.js" defer></script>
+</body>
+</html>
