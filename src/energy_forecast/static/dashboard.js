@@ -134,8 +134,6 @@ function showFreshness(snapshot) {
   host.append(detailRow("Weather provider", Object.values(freshness.weather_sources || {}).join(", ") || "Unavailable"));
   const elevation = Object.values(freshness.weather_elevation || {})[0];
   host.append(detailRow("Solar elevation input", elevation ? `${elevation.meters} m · ${elevation.source}` : "Unavailable"));
-  const staleEntities = freshness.stale_entities || [];
-  host.append(detailRow("Stale Home Assistant entities", staleEntities.length ? staleEntities.join(", ") : "None"));
   const warning = $("freshness-warning");
   const errors = Object.values(freshness.weather_errors || {});
   if (snapshot.status === "stale" || errors.length || snapshot.last_error) {
@@ -238,6 +236,25 @@ async function loadForecast() {
     $("freshness-warning").textContent = error.message;
   }
 }
+
+
+async function recomputeForecast() {
+  const button = $("recompute-forecast");
+  button.disabled = true;
+  button.textContent = "Recomputing…";
+  try {
+    render(await requestJSON("/ui/api/forecast/refresh", { method: "POST" }));
+  } catch (error) {
+    const warning = $("freshness-warning");
+    warning.hidden = false;
+    warning.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Recompute forecast";
+  }
+}
+
+$("recompute-forecast").addEventListener("click", recomputeForecast);
 
 $("recalibrate").addEventListener("click", async () => {
   const button = $("recalibrate");

@@ -169,6 +169,13 @@ def create_app(forecast_service: ForecastService | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Calibration run not found")
         return result
 
+
+    @app.post("/ui/api/forecast/refresh")
+    async def ui_refresh_forecast(request: Request) -> JSONResponse:
+        active = _service(request)
+        await active.refresh_forecast()
+        return JSONResponse(content=_forecast_for_display(active), headers={"Cache-Control": "no-store"})
+
     @app.get("/ui/api/forecast")
     async def ui_forecast(request: Request) -> JSONResponse:
         return JSONResponse(content=_forecast_for_display(_service(request)), headers={"Cache-Control": "no-store"})

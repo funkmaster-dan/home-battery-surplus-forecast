@@ -17,7 +17,10 @@
   <main class="page-shell dashboard-shell">
     <section class="page-heading dashboard-heading">
       <div><div class="eyebrow">Read-only planning signal</div><h1>Energy forecast</h1><p id="forecast-subtitle">Solar production, home load, and conservative battery trajectory.</p></div>
-      <button id="recalibrate" class="button secondary" type="button">Recalibrate models</button>
+      <div class="dashboard-actions">
+        <button id="recompute-forecast" class="button secondary" type="button">Recompute forecast</button>
+        <button id="recalibrate" class="button secondary" type="button">Recalibrate models</button>
+      </div>
     </section>
     <div id="freshness-warning" class="warning-banner" hidden></div>
     <section class="metric-grid" aria-label="Forecast totals">

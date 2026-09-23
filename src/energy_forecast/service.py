@@ -301,8 +301,7 @@ class ForecastService:
             run_id = await self.start_calibration()
         else:
             run_id = None
-            if self._refresh_task is not None:
-                await self.refresh_forecast()
+            await self.refresh_forecast()
         return {"saved": True, "config": new_payload, "calibration_run_id": run_id}
 
     async def start_calibration(self) -> str:
@@ -543,28 +542,25 @@ class ForecastService:
         if connection is None:
             raise ServiceError("Home Assistant is not connected")
         client = HomeAssistantClient(connection["base_url"], connection["access_token"])
+        battery_entity_id = config.battery.entity_id
         try:
-            states_results = await asyncio.gather(
-                *(client.get_state(entity_id) for entity_id in config.entity_ids()), return_exceptions=True
-            )
+            state = await client.get_state(battery_entity_id)
+        except Exception:
+            state = None
         finally:
             await client.close()
-        states: dict[str, dict[str, Any] | None] = {}
-        stale_entities: list[str] = []
-        state_ages: dict[str, float | None] = {}
-        for entity_id, state in zip(config.entity_ids(), states_results, strict=True):
-            if isinstance(state, Exception) or not isinstance(state, dict):
-                states[entity_id] = None
-                stale_entities.append(entity_id)
-                state_ages[entity_id] = None
-                continue
-            states[entity_id] = state
-            timestamp = parse_timestamp(state.get("last_updated") or state.get("last_changed"))
-            age = (now - timestamp).total_seconds() if timestamp else None
-            state_ages[entity_id] = age / 60.0 if age is not None else None
-            state_value = str(state.get("state", ""))
-            if state_value in {"unknown", "unavailable", "none", ""}:
-                stale_entities.append(entity_id)
+        states: dict[str, dict[str, Any] | None] = {
+            battery_entity_id: state if isinstance(state, dict) else None
+        }
+        timestamp = (
+            parse_timestamp(state.get("last_updated") or state.get("last_changed"))
+            if isinstance(state, dict)
+            else None
+        )
+        age = (now - timestamp).total_seconds() if timestamp else None
+        state_ages: dict[str, float | None] = {
+            battery_entity_id: age / 60.0 if age is not None else None
+        }
         runtime_weather: dict[tuple[float, float], WeatherSeries] = {}
         weather_errors: dict[str, str] = {}
         orientations = sorted({(array.tilt_deg, array.azimuth_deg) for array in config.solar_arrays})
@@ -629,9 +625,9 @@ class ForecastService:
                 start, config.horizon_hours, now, config.timezone, temperature_points
             )
         battery_state, battery_state_error = _current_battery_energy(states.get(config.battery.entity_id), config.battery)
-        battery_fresh = config.battery.entity_id not in stale_entities and battery_state is not None
+        battery_state_available = battery_state is not None
         battery_result: BatteryForecast | None = None
-        if solar_total is not None and load_series is not None and battery_fresh:
+        if solar_total is not None and load_series is not None and battery_state_available:
             battery_result = BatterySurplusCalculator.calculate(
                 solar_total,
                 load_series,
@@ -651,8 +647,7 @@ class ForecastService:
             or weather_age > weather_stale_limit
             or any("cached fallback" in series.source for series in runtime_weather.values())
         )
-        state_stale = bool(stale_entities)
-        if weather_stale or state_stale:
+        if weather_stale:
             status = "stale"
         elif (
             solar_total is not None
@@ -667,8 +662,6 @@ class ForecastService:
             status = "partial"
         solar_generation = array_energy.get("total")
         home_consumption = load_series.energy_kwh() if load_series else None
-        if state_stale:
-            battery_result = None
         intervals: list[dict[str, Any]] = []
         profile_points = solar_total.points if solar_total else ()
         for index in range(config.horizon_hours * 12):
@@ -718,7 +711,6 @@ class ForecastService:
             "freshness": {
                 "generated_at": _rfc3339(now),
                 "home_assistant_state_age_minutes": state_ages,
-                "stale_entities": stale_entities,
                 "weather_age_minutes": weather_age / 60.0 if weather_age is not None else None,
                 "weather_sources": {f"{key[0]}:{key[1]}": value.source for key, value in runtime_weather.items()},
                 "weather_elevation": {f"{key[0]}:{key[1]}": {"meters": value.elevation_m, "source": value.elevation_source}

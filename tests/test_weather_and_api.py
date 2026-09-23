@@ -369,6 +369,119 @@ def test_llm_and_hacs_machine_tokens_are_distinct_and_config_is_atomic(tmp_path,
     assert config_response.json()["config"]["grid_import_windows"][0]["weekdays"] == [0, 1, 2, 3, 4, 5, 6]
 
 
+
+@pytest.mark.asyncio
+async def test_config_save_refreshes_battery_forecast_immediately(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LLM_API_TOKEN", "llm-refresh-secret-123456")
+    monkeypatch.setenv("HA_INTEGRATION_TOKEN", "hacs-refresh-secret-123456")
+    monkeypatch.setenv("ENERGY_FORECAST_DATA_DIR", str(tmp_path / "module-data"))
+
+    from types import SimpleNamespace
+
+    import energy_forecast.service as service_module
+    from energy_forecast.forecast_types import ForecastPoint, ForecastSeries
+    from energy_forecast.service import ForecastService
+    from energy_forecast.weather import WeatherSeries
+    from energy_forecast.web import create_app
+
+    payload = _valid_config()
+    payload["horizon_hours"] = 24
+    config = ForecastConfig.model_validate(payload)
+    service = ForecastService(Storage(tmp_path / "service-data"))
+    service.storage.save_ha_connection("http://ha.example:8123", "ha-refresh-secret-123456", {"time_zone": "UTC"})
+    service.storage.save_config(config.model_dump(mode="json"))
+    service.config = config
+
+    class FakeHomeAssistantClient:
+        def __init__(self, _base_url: str, _access_token: str) -> None:
+            pass
+
+        async def get_state(self, entity_id: str) -> dict:
+            value = "50" if entity_id == config.battery.entity_id else "unavailable"
+            return {"state": value, "last_updated": (datetime.now(UTC) - timedelta(minutes=1)).isoformat()}
+
+        async def close(self) -> None:
+            pass
+
+    async def accept_config(_config: ForecastConfig) -> None:
+        pass
+
+    monkeypatch.setattr(service_module, "HomeAssistantClient", FakeHomeAssistantClient)
+    monkeypatch.setattr(service, "_validate_config_inputs", accept_config)
+
+    async def fake_weather_runtime(
+        _latitude, _longitude, _timezone, _tilt, _azimuth, _horizon, _elevation, now,
+        *, refresh_interval_minutes,
+    ) -> WeatherSeries:
+        return WeatherSeries((), "open-meteo:auto", now, 0.0, "fixture", {})
+
+    service.weather.runtime = fake_weather_runtime
+
+    def fixture_series(kind: str, value: float, start: datetime, hours: int, generated_at: datetime, timezone_name: str):
+        points = tuple(
+            ForecastPoint(
+                start + timedelta(minutes=5 * index),
+                start + timedelta(minutes=5 * (index + 1)),
+                value,
+            )
+            for index in range(hours * 12)
+        )
+        return ForecastSeries(kind, "W", points, generated_at, timezone_name, "fixture", 1.0)
+
+    class FakeSolar:
+        def __init__(self) -> None:
+            self.models = {config.solar_arrays[0].id: SimpleNamespace(metrics={})}
+
+        def predict(self, _array_id, _weather, start, hours, now, timezone_name):
+            return fixture_series("solar_power", 0.0, start, hours, now, timezone_name)
+
+    class FakeConsumption:
+        metrics = {"method": "fixture"}
+
+        def predict(self, start, hours, now, timezone_name, _temperature_points):
+            return fixture_series("home_load_power", 1000.0, start, hours, now, timezone_name)
+
+    service.solar = FakeSolar()
+    service.consumption = FakeConsumption()
+    client = TestClient(create_app(service))
+
+    initial = await service.refresh_forecast()
+    assert initial is not None
+    assert initial["battery_surplus_min_kwh"] == pytest.approx(0.0)
+
+    updated_payload = config.model_dump(mode="json")
+    updated_payload["grid_import_windows"] = [
+        {
+            "weekdays": [0, 1, 2, 3, 4, 5, 6],
+            "start": "00:00",
+            "end": "12:00",
+            "target_soc_pct": 80,
+            "grid_charge_kw": 2,
+        },
+        {
+            "weekdays": [0, 1, 2, 3, 4, 5, 6],
+            "start": "12:00",
+            "end": "00:00",
+            "target_soc_pct": 80,
+            "grid_charge_kw": 2,
+        },
+    ]
+    update_result = await service.save_config(ForecastConfig.model_validate(updated_payload))
+
+    response = client.get("/ui/api/forecast")
+    assert update_result["calibration_run_id"] is None
+    assert response.status_code == 200
+    assert response.json()["generated_at"] != initial["generated_at"]
+    assert response.json()["battery_surplus_min_kwh"] == pytest.approx(5.0)
+    assert response.json()["status"] == "ready"
+    assert response.json()["model_status"]["battery"]["available"] is True
+    before_manual_refresh = response.json()
+    manual = client.post("/ui/api/forecast/refresh")
+    assert manual.status_code == 200
+    assert manual.json()["generated_at"] != before_manual_refresh["generated_at"]
+    assert manual.json()["battery_surplus_min_kwh"] == pytest.approx(5.0)
+
+
 def test_hacs_read_token_cannot_access_llm_configuration(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LLM_API_TOKEN", "llm-machine-secret-value-123456")
     monkeypatch.setenv("HA_INTEGRATION_TOKEN", "hacs-machine-secret-value-123456")
