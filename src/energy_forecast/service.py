@@ -567,6 +567,7 @@ class ForecastService:
                     config.horizon_hours,
                     None,
                     now,
+                    refresh_interval_minutes=config.open_meteo_refresh_minutes,
                 )
             except WeatherUnavailable as exc:
                 weather_errors[f"{orientation[0]}:{orientation[1]}"] = str(exc)
@@ -629,7 +630,15 @@ class ForecastService:
             )
         weather_ages = [(now - series.generated_at).total_seconds() for series in runtime_weather.values()]
         weather_age = max(weather_ages) if weather_ages else None
-        weather_stale = weather_age is None or weather_age > WEATHER_MAX_AGE.total_seconds()
+        weather_stale_limit = max(
+            WEATHER_MAX_AGE.total_seconds(),
+            config.open_meteo_refresh_minutes * 60 + REFRESH_SECONDS,
+        )
+        weather_stale = (
+            weather_age is None
+            or weather_age > weather_stale_limit
+            or any("cached fallback" in series.source for series in runtime_weather.values())
+        )
         state_stale = bool(stale_entities)
         if weather_stale or state_stale:
             status = "stale"
@@ -644,15 +653,8 @@ class ForecastService:
             status = "ready"
         else:
             status = "partial"
-        if weather_stale:
-            # Do not label predictions based on old/missing weather as current.
-            solar_generation = None
-            array_energy = {key: None for key in array_energy}
-            home_consumption = None
-            battery_result = None
-        else:
-            solar_generation = array_energy.get("total")
-            home_consumption = load_series.energy_kwh() if load_series else None
+        solar_generation = array_energy.get("total")
+        home_consumption = load_series.energy_kwh() if load_series else None
         if state_stale:
             battery_result = None
         intervals: list[dict[str, Any]] = []

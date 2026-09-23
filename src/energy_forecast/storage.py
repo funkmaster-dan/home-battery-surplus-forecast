@@ -196,7 +196,7 @@ class Storage:
         return {"count": row["count"], "first": row["first"], "last": row["last"],
                 "sources": {item["source"]: item["count"] for item in sources}}
 
-    def get_weather_cache(self, cache_key: str, max_age_seconds: int) -> dict[str, Any] | None:
+    def get_weather_cache(self, cache_key: str, max_age_seconds: int | None) -> dict[str, Any] | None:
         with self._connection() as conn:
             row = conn.execute(
                 "SELECT fetched_at, payload FROM weather_cache WHERE cache_key=?", (cache_key,)
@@ -208,7 +208,7 @@ class Storage:
             age = (datetime.now(timezone.utc) - fetched_at.astimezone(timezone.utc)).total_seconds()
         except (TypeError, ValueError):
             return None
-        if age < 0 or age > max_age_seconds:
+        if age < 0 or (max_age_seconds is not None and age > max_age_seconds):
             return None
         return {"fetched_at": row["fetched_at"], "payload": json.loads(row["payload"])}
 

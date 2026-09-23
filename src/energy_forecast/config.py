@@ -101,6 +101,7 @@ class ForecastConfig(BaseModel):
     calibration_start: date
     calibration_end: date
     horizon_hours: int = Field(default=48, ge=24, le=48)
+    open_meteo_refresh_minutes: int = Field(default=60, ge=15, le=240, multiple_of=15)
     consumption: ConsumptionSensor
     battery: BatteryConfig
     solar_arrays: list[PVArrayConfig] = Field(min_length=1)

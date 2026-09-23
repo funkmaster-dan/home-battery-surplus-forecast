@@ -127,9 +127,10 @@ def create_app(forecast_service: ForecastService | None = None) -> FastAPI:
     async def ui_get_config(request: Request) -> dict[str, Any]:
         active = _service(request)
         connection = active.storage.get_ha_connection()
+        config = active.config.model_dump(mode="json") if active.config else None
         return {
-            "configured": active.storage.get_config() is not None,
-            "config": active.storage.get_config(),
+            "configured": config is not None,
+            "config": config,
             "site": connection.get("site_config") if connection else None,
             "base_url": connection.get("base_url") if connection else "",
         }

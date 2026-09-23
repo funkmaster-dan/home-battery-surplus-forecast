@@ -86,7 +86,8 @@ async def list_entities(request: Request) -> dict[str, Any]:
 
 @router.get("/config", dependencies=[Depends(require_llm_token)])
 async def get_config(request: Request) -> dict[str, Any]:
-    config = _service(request).storage.get_config()
+    active = _service(request)
+    config = active.config.model_dump(mode="json") if active.config else None
     return {"configured": config is not None, "config": config}
 
 

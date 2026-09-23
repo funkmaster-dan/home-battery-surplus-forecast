@@ -68,8 +68,12 @@
           <label>Forecast horizon
             <select id="horizon-hours"><option value="24">24 hours</option><option value="36">36 hours</option><option value="48" selected>48 hours</option></select>
           </label>
+          <label>Open-Meteo refresh interval (minutes)
+            <input id="open-meteo-refresh-minutes" type="number" min="15" max="240" step="15" value="60" required>
+          </label>
         </div>
         <p class="help-text">The selected dates control historical training only. The live battery forecast starts from the current battery state and runs forward independently.</p>
+        <p class="help-text">Weather requests follow this interval; current Home Assistant state and forecast updates continue every five minutes.</p>
       </section>
 
       <section class="card">

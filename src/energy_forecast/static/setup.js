@@ -320,6 +320,7 @@ function fillConfig(config, site) {
   $("longitude").value = config?.longitude ?? home.longitude ?? 0;
   $("timezone").value = config?.timezone || home.time_zone || "UTC";
   $("horizon-hours").value = String(config?.horizon_hours ?? 48);
+  $("open-meteo-refresh-minutes").value = String(config?.open_meteo_refresh_minutes ?? 60);
   const today = new Date();
   const timezone = config?.timezone || home.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const endDefault = localDateInput(today, timezone);
@@ -464,6 +465,7 @@ $("config-form").addEventListener("submit", async (event) => {
       calibration_start: $("calibration-start").value,
       calibration_end: $("calibration-end").value,
       horizon_hours: Number($("horizon-hours").value),
+      open_meteo_refresh_minutes: Number($("open-meteo-refresh-minutes").value),
       consumption: {
         entity_id: consumptionEntity.entity_id,
         unit: consumptionEntity.unit,

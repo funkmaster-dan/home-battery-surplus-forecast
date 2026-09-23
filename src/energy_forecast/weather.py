@@ -53,10 +53,42 @@ class OpenMeteoWeather:
     def __init__(self, storage: Storage, timeout: float = 45.0) -> None:
         self.storage = storage
         self.timeout = timeout
+        self._retry_after: dict[str, tuple[datetime, int]] = {}
 
     @staticmethod
     def _cache_key(parameters: dict[str, Any]) -> str:
         return hashlib.sha256(json.dumps(parameters, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+    @staticmethod
+    def _cached_weather_series(
+        cached: dict[str, Any],
+        model: str,
+        parameters: dict[str, Any],
+        *,
+        stale_fallback: bool = False,
+    ) -> WeatherSeries:
+        stored = cached["payload"]
+        generated_at = _parse_cache_time(cached.get("fetched_at"))
+        if isinstance(stored, dict) and "_open_meteo_body" in stored:
+            series = _parse_weather(
+                stored["_open_meteo_body"],
+                str(stored.get("model") or model),
+                stored.get("parameters") or parameters,
+                generated_at=generated_at,
+            )
+            source = stored.get("source") or series.source
+        else:
+            series = _parse_weather(stored, model, parameters, generated_at=generated_at)
+            source = series.source
+        if stale_fallback:
+            source = f"{source} (cached fallback)"
+        if source == series.source:
+            return series
+        return WeatherSeries(
+            series.points, source, series.generated_at, series.elevation_m,
+            series.elevation_source, series.request_parameters,
+        )
 
     async def _request(self, url: str, parameters: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -149,6 +181,7 @@ class OpenMeteoWeather:
         elevation_m: float | None = None,
         now: datetime | None = None,
         runtime_model: str = "auto",
+        refresh_interval_minutes: int = 60,
     ) -> WeatherSeries:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         model = runtime_model if runtime_model in {"auto", BOM_MODEL} else "auto"
@@ -166,74 +199,75 @@ class OpenMeteoWeather:
             params["models"] = model
         if elevation_m is not None:
             params["elevation"] = elevation_m
-        cache_slot = now.replace(minute=(now.minute // 30) * 30, second=0, microsecond=0)
         key_params = {
             "endpoint": "forecast",
-            "slot": cache_slot.strftime("%Y-%m-%dT%H:%M"),
             "site_timezone": timezone_name,
             "model": model,
             **params,
         }
         key = self._cache_key(key_params)
-        cached = self.storage.get_weather_cache(key, max_age_seconds=1800)
+        cached = self.storage.get_weather_cache(
+            key, max_age_seconds=refresh_interval_minutes * 60
+        )
         if cached:
-            stored = cached["payload"]
-            if isinstance(stored, dict) and "_open_meteo_body" in stored:
-                cached_series = _parse_weather(
-                    stored["_open_meteo_body"],
-                    stored["model"],
-                    stored["parameters"],
-                    generated_at=_parse_cache_time(cached["fetched_at"]),
-                )
-                source = stored.get("source")
-                if source:
-                    return WeatherSeries(cached_series.points, source, cached_series.generated_at,
-                                         cached_series.elevation_m, cached_series.elevation_source,
-                                         cached_series.request_parameters)
-                return cached_series
-            return _parse_weather(stored, model, key_params, generated_at=_parse_cache_time(cached["fetched_at"]))
-        if model == BOM_MODEL:
-            try:
-                payload = await self._request(FORECAST_URL, params)
-                series = _parse_weather(payload, model, key_params)
-                if not _complete_runtime_weather(series, now, horizon_hours):
-                    raise WeatherUnavailable("BOM forecast omitted required fields")
-                self.storage.save_weather_cache(
-                    key, {"_open_meteo_body": payload, "model": model, "parameters": key_params}
-                )
-                return series
-            except WeatherUnavailable:
-                fallback_params = {key: value for key, value in params.items() if key != "models"}
+            self._retry_after.pop(key, None)
+            return self._cached_weather_series(cached, model, key_params)
+        retry = self._retry_after.get(key)
+        if retry and retry[1] == refresh_interval_minutes and now < retry[0]:
+            cached = self.storage.get_weather_cache(key, max_age_seconds=None)
+            if cached:
+                return self._cached_weather_series(cached, model, key_params, stale_fallback=True)
+            raise WeatherUnavailable("Open-Meteo refresh is in backoff and no cached forecast exists")
+        self._retry_after.pop(key, None)
+        try:
+            if model == BOM_MODEL:
                 try:
+                    payload = await self._request(FORECAST_URL, params)
+                    series = _parse_weather(payload, model, key_params)
+                    if not _complete_runtime_weather(series, now, horizon_hours):
+                        raise WeatherUnavailable("BOM forecast omitted required fields")
+                    cache_payload = {"_open_meteo_body": payload, "model": model, "parameters": key_params}
+                except WeatherUnavailable:
+                    fallback_params = {key: value for key, value in params.items() if key != "models"}
                     payload = await self._request(FORECAST_URL, fallback_params)
-                except WeatherUnavailable as exc:
-                    raise WeatherUnavailable("BOM and generic Open-Meteo forecasts are unavailable") from exc
-                fallback_key_params = {"endpoint": "forecast", "site_timezone": timezone_name, "model": "auto", **fallback_params}
-                series = _parse_weather(payload, "auto", fallback_key_params)
-                series = WeatherSeries(
-                    series.points,
-                    "open-meteo:auto (BOM fallback)",
-                    series.generated_at,
-                    series.elevation_m,
-                    series.elevation_source,
-                    series.request_parameters,
-                )
-                self.storage.save_weather_cache(
-                    key,
-                    {
+                    fallback_key_params = {
+                        "endpoint": "forecast", "site_timezone": timezone_name,
+                        "model": "auto", **fallback_params,
+                    }
+                    series = _parse_weather(payload, "auto", fallback_key_params)
+                    if not _complete_runtime_weather(series, now, horizon_hours):
+                        raise WeatherUnavailable("Open-Meteo fallback omitted required fields")
+                    series = WeatherSeries(
+                        series.points,
+                        "open-meteo:auto (BOM fallback)",
+                        series.generated_at,
+                        series.elevation_m,
+                        series.elevation_source,
+                        series.request_parameters,
+                    )
+                    cache_payload = {
                         "_open_meteo_body": payload,
                         "model": "auto",
                         "parameters": fallback_key_params,
                         "source": "open-meteo:auto (BOM fallback)",
-                    },
-                )
-                return series
-        payload = await self._request(FORECAST_URL, params)
-        series = _parse_weather(payload, model, key_params)
-        self.storage.save_weather_cache(
-            key, {"_open_meteo_body": payload, "model": model, "parameters": key_params}
-        )
-        return series
+                    }
+            else:
+                payload = await self._request(FORECAST_URL, params)
+                series = _parse_weather(payload, model, key_params)
+                if not _complete_runtime_weather(series, now, horizon_hours):
+                    raise WeatherUnavailable("Open-Meteo forecast omitted required fields")
+                cache_payload = {"_open_meteo_body": payload, "model": model, "parameters": key_params}
+            self.storage.save_weather_cache(key, cache_payload)
+            self._retry_after.pop(key, None)
+            return series
+        except WeatherUnavailable:
+            self._retry_after[key] = (
+                now + timedelta(minutes=refresh_interval_minutes), refresh_interval_minutes
+            )
+            cached = self.storage.get_weather_cache(key, max_age_seconds=None)
+            if cached:
+                return self._cached_weather_series(cached, model, key_params, stale_fallback=True)
+            raise
 
     async def runtime_for_arrays(
         self,
@@ -244,6 +278,7 @@ class OpenMeteoWeather:
         horizon_hours: int,
         elevation_m: float | None = None,
         now: datetime | None = None,
+        refresh_interval_minutes: int = 60,
     ) -> dict[tuple[float, float], WeatherSeries]:
         orientations = sorted({(float(a.tilt_deg), float(a.azimuth_deg)) for a in arrays})
         if not orientations:
@@ -264,6 +299,7 @@ class OpenMeteoWeather:
                             elevation_m,
                             now,
                             runtime_model,
+                            refresh_interval_minutes,
                         )
                         for tilt, azimuth in orientations
                     )

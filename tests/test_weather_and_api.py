@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from energy_forecast.config import ForecastConfig
 from energy_forecast.storage import Storage
-from energy_forecast.weather import BOM_MODEL, OpenMeteoWeather
+from energy_forecast.weather import BOM_MODEL, OpenMeteoWeather, WeatherUnavailable
 
 
 UTC = timezone.utc
@@ -102,6 +102,59 @@ async def test_historical_weather_uses_utc_hour_bins_for_adelaide(tmp_path, monk
     assert requests[0]["end_date"] == "2024-01-02"
     assert list(series.irradiance) == [start_hour + timedelta(hours=index) for index in range(3)]
 
+
+@pytest.mark.asyncio
+async def test_runtime_cache_interval_and_last_success_fallback(tmp_path, monkeypatch) -> None:
+    storage = Storage(tmp_path / "data")
+    weather = OpenMeteoWeather(storage)
+    now = datetime.now(UTC).replace(second=0, microsecond=0)
+    hour = now.replace(minute=0)
+    times = [int((hour + timedelta(hours=index + 1)).timestamp()) for index in range(40)]
+    requests: list[dict] = []
+
+    async def fixture_request(url: str, parameters: dict) -> dict:
+        requests.append(dict(parameters))
+        if len(requests) > 1:
+            raise WeatherUnavailable("simulated Open-Meteo outage")
+        return _hourly_payload(times, [150.0] * len(times), [22.0] * len(times))
+
+    monkeypatch.setattr(weather, "_request", fixture_request)
+    first = await weather.runtime(
+        51.5, -0.12, "Australia/Adelaide", 25, 0, 24,
+        now=now, refresh_interval_minutes=120,
+    )
+    assert "models" not in requests[0]
+
+    with storage._connection() as connection:
+        connection.execute(
+            "UPDATE weather_cache SET fetched_at=?",
+            ((datetime.now(UTC) - timedelta(minutes=90)).isoformat(),),
+        )
+    cached = await weather.runtime(
+        51.5, -0.12, "Australia/Adelaide", 25, 0, 24,
+        now=now + timedelta(minutes=90), refresh_interval_minutes=120,
+    )
+    assert len(requests) == 1
+    assert cached.points == first.points
+
+    with storage._connection() as connection:
+        connection.execute(
+            "UPDATE weather_cache SET fetched_at=?",
+            ((datetime.now(UTC) - timedelta(minutes=121)).isoformat(),),
+        )
+    fallback = await weather.runtime(
+        51.5, -0.12, "Australia/Adelaide", 25, 0, 24,
+        now=now + timedelta(minutes=121), refresh_interval_minutes=120,
+    )
+    retry = await weather.runtime(
+        51.5, -0.12, "Australia/Adelaide", 25, 0, 24,
+        now=now + timedelta(minutes=130), refresh_interval_minutes=120,
+    )
+
+    assert len(requests) == 2
+    assert fallback.source.endswith("(cached fallback)")
+    assert fallback.points == first.points
+    assert retry.points == first.points
 
 @pytest.mark.asyncio
 async def test_unitless_statistic_uses_matching_entity_unit(tmp_path, monkeypatch) -> None:
@@ -210,6 +263,7 @@ def test_llm_and_hacs_machine_tokens_are_distinct_and_config_is_atomic(tmp_path,
     original = _valid_config()
     service.storage.save_config(original)
     service.config = ForecastConfig.model_validate(original)
+    assert service.config.open_meteo_refresh_minutes == 60
     service.storage.save_ha_connection("http://ha.example:8123", ha_token, {"time_zone": "UTC"})
     service.solar = object()  # the request only exercises atomic configuration persistence
     service.consumption = object()
@@ -258,6 +312,7 @@ def test_llm_and_hacs_machine_tokens_are_distinct_and_config_is_atomic(tmp_path,
 
     updated = _valid_config()
     updated["battery"]["capacity_kwh"] = 12
+    updated["open_meteo_refresh_minutes"] = 120
     rejected = client.put(
         "/api/v1/config",
         headers={"Authorization": f"Bearer {hacs_token}"},
@@ -300,6 +355,7 @@ def test_llm_and_hacs_machine_tokens_are_distinct_and_config_is_atomic(tmp_path,
     config_response = client.get("/api/v1/config", headers={"Authorization": f"Bearer {llm_token}"})
     assert config_response.status_code == 200
     assert ha_token not in json.dumps(config_response.json())
+    assert config_response.json()["config"]["open_meteo_refresh_minutes"] == 120
 
 
 def test_hacs_read_token_cannot_access_llm_configuration(tmp_path, monkeypatch) -> None:
