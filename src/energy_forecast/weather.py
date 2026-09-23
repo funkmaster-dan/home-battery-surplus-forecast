@@ -184,6 +184,8 @@ class OpenMeteoWeather:
         refresh_interval_minutes: int = 60,
     ) -> WeatherSeries:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        # Keep the hourly temperature brackets beyond the horizon for the cache lifetime.
+        cache_padding_hours = (refresh_interval_minutes + 59) // 60
         model = runtime_model if runtime_model in {"auto", BOM_MODEL} else "auto"
         params: dict[str, Any] = {
             "latitude": latitude,
@@ -193,7 +195,7 @@ class OpenMeteoWeather:
             "azimuth": azimuth_deg,
             "timezone": "UTC",
             "timeformat": "unixtime",
-            "forecast_hours": horizon_hours + 2,
+            "forecast_hours": horizon_hours + 2 + cache_padding_hours,
         }
         if model != "auto":
             params["models"] = model
