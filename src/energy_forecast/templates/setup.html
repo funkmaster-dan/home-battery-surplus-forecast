@@ -3,26 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Set up · Home Battery Surplus Forecast</title>
+  <title>{% if edit_mode %}Configuration{% else %}Set up{% endif %} · Home Battery Surplus Forecast</title>
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 </head>
-<body>
+<body data-edit-mode="{{ 'true' if edit_mode else 'false' }}">
   <header class="topbar">
     <a class="brand" href="/" aria-label="Home Battery Surplus Forecast">
       <span class="brand-mark">⌁</span>
       <span><strong>Home Battery</strong><small>Surplus Forecast</small></span>
     </a>
-    <span class="topbar-note">Read-only forecasts · No battery control</span>
+    {% if edit_mode %}<a class="text-link" href="/">Back to forecast</a>{% else %}<span class="topbar-note">Read-only forecasts · No battery control</span>{% endif %}
   </header>
   <main class="page-shell">
     <section class="page-heading">
-      <div class="eyebrow">First-run setup</div>
-      <h1>Connect your energy data</h1>
-      <p>Connect Home Assistant, confirm sensor units, and train on the history Recorder actually retains.</p>
+      <div class="eyebrow">{% if edit_mode %}Configuration{% else %}First-run setup{% endif %}</div>
+      <h1>{% if edit_mode %}Update forecast configuration{% else %}Connect your energy data{% endif %}</h1>
+      <p>{% if edit_mode %}Update sensors and model settings. Changes to training inputs start a new calibration; other changes reuse current models.{% else %}Connect Home Assistant, confirm sensor units, and train on the history Recorder actually retains.{% endif %}</p>
     </section>
 
-    <section class="card" id="connection-card">
+    <section class="card" id="connection-card" {% if edit_mode %}hidden{% endif %}>
       <div class="card-heading">
         <div><div class="step-label">STEP 1</div><h2>Home Assistant connection</h2></div>
         <span id="connection-status" class="status-pill">Not connected</span>
@@ -171,7 +171,7 @@
 
       <div class="submit-row">
         <p class="muted">This app exposes forecasts only. Your Home Assistant automations retain all control and export decisions.</p>
-        <button class="button primary" type="submit">Save configuration and start calibration</button>
+        <button class="button primary" type="submit">{% if edit_mode %}Save changes{% else %}Save configuration and start calibration{% endif %}</button>
       </div>
       <p id="config-message" class="form-message" role="status"></p>
     </form>

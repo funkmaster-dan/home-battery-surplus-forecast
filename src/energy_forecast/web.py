@@ -93,7 +93,15 @@ def create_app(forecast_service: ForecastService | None = None) -> FastAPI:
 
     @app.get("/setup", response_class=HTMLResponse)
     async def setup_page(request: Request) -> HTMLResponse:
-        return TEMPLATES.TemplateResponse(request=request, name="setup.html", context={})
+        return TEMPLATES.TemplateResponse(request=request, name="setup.html", context={"edit_mode": False})
+
+    @app.get("/configuration", response_class=HTMLResponse)
+    async def configuration_page(request: Request) -> HTMLResponse:
+        active = _service(request)
+        edit_mode = active.config is not None and active.storage.get_ha_connection() is not None
+        return TEMPLATES.TemplateResponse(
+            request=request, name="setup.html", context={"edit_mode": edit_mode}
+        )
 
     @app.get("/dashboard", response_class=HTMLResponse)
     async def dashboard_page(request: Request) -> HTMLResponse:

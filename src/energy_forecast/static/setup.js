@@ -426,7 +426,7 @@ $("config-form").addEventListener("submit", async (event) => {
   const button = event.submitter || document.querySelector("#config-form button[type=submit]");
   const message = $("config-message");
   button.disabled = true;
-  setMessage(message, "Saving validated configuration and starting calibration…");
+  setMessage(message, document.body.dataset.editMode === "true" ? "Saving configuration…" : "Saving validated configuration and starting calibration…");
   try {
     const consumptionEntity = sensorById.get($("consumption-entity").value);
     const batteryEntity = sensorById.get($("battery-entity").value);
